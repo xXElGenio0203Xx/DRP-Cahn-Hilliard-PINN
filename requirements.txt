@@ -1,0 +1,11 @@
+# Requirements for Cahn-Hilliard PINN experiments
+# Install with: pip install -r requirements.txt
+#
+# IMPORTANT: After installing, you must patch SciPy with _optimize.py:
+#   cp _optimize.py $(python -c "import scipy.optimize; import os; print(os.path.dirname(scipy.optimize.__file__))")/_optimize.py
+
+torch>=2.0.0
+numpy>=1.24.0
+scipy==1.12.0
+pyyaml>=6.0
+matplotlib>=3.7.0

@@ -1,0 +1,95 @@
+# ============================================================================
+# Experiment: Adam-Only Baseline
+# ============================================================================
+# First-order baseline.  No quasi-Newton phase at all.
+# Demonstrates how far Adam alone can drive the loss in 12,000 iterations
+# (the same total budget as the canonical SSBroyden2 config).
+#
+# Purpose: establishes the floor that all second-order methods must beat.
+# ============================================================================
+
+experiment:
+  name: "adam_only"
+  description: >
+    Adam-only baseline for Cahn-Hilliard.  12,000 Adam epochs with LR decay,
+    no BFGS phase.  Same total iteration budget as canonical config.
+
+# --- Equation (FIXED across all experiments) --------------------------------
+equation:
+  D: 1.0
+  a2: 1.0
+  a4: 1.0
+
+# --- Domain (FIXED) --------------------------------------------------------
+domain:
+  x_min: 0.0
+  x_max: 128.0
+  y_min: 0.0
+  y_max: 128.0
+  t_min: 0.0
+  t_max: 20.0
+  normalize_inputs: true
+
+# --- Initial condition (FIXED) ---------------------------------------------
+initial_condition:
+  type: "uniform_random"
+  low: -1.0
+  high: 1.0
+  grid_nx: 128
+  grid_ny: 128
+  smoothing_sigma: 2.0
+  seed: 42
+
+# --- Boundary conditions (FIXED) -------------------------------------------
+boundary_conditions:
+  type: "periodic"
+  enforcement: "soft"
+  derivative_order: 1
+
+# --- Network (FIXED) -------------------------------------------------------
+network:
+  layer_dims: [3, 40, 40, 40, 40, 1]
+  activation: "tanh"
+  output_scaling: 1.0
+  final_layer_init: "variance_scaling"
+
+# --- Training (VARIED — this is the experiment axis) -----------------------
+training:
+  adam:
+    epochs: 12000           # Full budget goes to Adam
+    lr: 0.001
+    betas: [0.99, 0.999]
+    eps: 1.0e-20
+    lr_decay_rate: 0.98
+    lr_decay_steps: 1000
+  bfgs:
+    epochs: 0               # No BFGS phase
+    batch_size: 500
+    method: "BFGS"
+    variant: "none"
+
+# --- Sampling (FIXED) ------------------------------------------------------
+sampling:
+  n_interior: 10000
+  n_initial: 1000
+  n_boundary: 500
+  resample_every: 500
+  rad:
+    enabled: true
+    k1: 1.0
+    k2: 1.0
+    n_candidates: 50000
+
+# --- Loss weights (FIXED) --------------------------------------------------
+loss_weights:
+  pde: 1.0
+  ic: 5.0
+  bc: 5.0
+
+# --- Logging ----------------------------------------------------------------
+logging:
+  print_every: 100
+  results_dir: "results/adam_only"
+
+seed: 2
+dtype: "float64"

@@ -1,0 +1,147 @@
+# ============================================================================
+# Cahn-Hilliard PINN — Canonical Configuration
+# ============================================================================
+#
+# Reproduces the EXACT parameters from:
+#   Kiyani et al., Phys. Rev. E 106, 065303 (2022)
+#   Table I — Cahn-Hilliard (Model B), Equation (6)
+#
+# PDE:
+#   ∂U/∂t = D · ∇²(∇²U + a₂·U + a₄·U³)
+#
+# All equation constants = 1 (per Table I: "all constants in the equations
+# of motion are set to 1").
+#
+# Domain: 128×128 grid, Δx = Δy = 1, periodic BCs.
+# Time:   t ∈ [0, 20], Δt = 0.01, 100 snapshots.
+# IC:     U₀(x,y) ~ Uniform(-1, 1) per grid point (Mersenne Twister).
+#
+# Optimizer: Adam warmup → Self-Scaled Broyden (SSBroyden2).
+# ============================================================================
+
+experiment:
+  name: "canonical_cahn_hilliard"
+  description: >
+    Canonical Cahn-Hilliard (Model B) configuration matching Table I of
+    PhysRevE.106.065303. PDE: ∂U/∂t = D∇²(∇²U + a₂U + a₄U³) with
+    D = a₂ = a₄ = 1 on a 128×128 periodic domain for t ∈ [0, 20].
+    Uses SSBroyden2 quasi-Newton optimizer after Adam warmup.
+
+# ---------------------------------------------------------------------------
+# PDE coefficients  (Equation 6 in the paper)
+# ∂U/∂t = D · ∇²( ∇²U + a2·U + a4·U³ )
+# ---------------------------------------------------------------------------
+equation:
+  D: 1.0       # Diffusion constant (Γ in Model B dynamics)
+  a2: 1.0      # Quadratic coefficient in chemical potential
+  a4: 1.0      # Quartic coefficient in chemical potential
+
+# ---------------------------------------------------------------------------
+# Computational domain
+# Paper: 128×128 grid, Δx = Δy = 1 ⇒ physical size 128×128
+# ---------------------------------------------------------------------------
+domain:
+  x_min: 0.0
+  x_max: 128.0
+  y_min: 0.0
+  y_max: 128.0
+  t_min: 0.0
+  t_max: 20.0
+  normalize_inputs: true    # Map (t, x, y) → [-1, 1] before feeding to network
+
+# ---------------------------------------------------------------------------
+# Initial condition
+# Paper: "uniform random distribution with values between −1 and 1"
+# We smooth slightly for PINN compatibility (the raw per-pixel IC is
+# not representable by a smooth neural network).
+# ---------------------------------------------------------------------------
+initial_condition:
+  type: "uniform_random"    # Options: uniform_random
+  low: -1.0                 # U₀ lower bound
+  high: 1.0                 # U₀ upper bound
+  grid_nx: 128              # IC grid resolution in x
+  grid_ny: 128              # IC grid resolution in y
+  smoothing_sigma: 2.0      # Gaussian smoothing (σ in grid units; 0 = none)
+  seed: 42                  # Fixed seed for reproducible IC generation
+
+# ---------------------------------------------------------------------------
+# Boundary conditions
+# Paper: "All models use periodic boundary conditions"
+# ---------------------------------------------------------------------------
+boundary_conditions:
+  type: "periodic"          # Options: periodic, dirichlet, neumann
+  enforcement: "soft"       # Options: soft (penalty terms), hard_fourier
+  derivative_order: 1       # Match periodicity of U (0) and ∂U/∂n (1)
+
+# ---------------------------------------------------------------------------
+# Neural network architecture
+# Input: (t, x, y) = 3 features → Output: U(t,x,y) = 1 feature
+# Using 4 hidden layers with 40 neurons each (tanh activation)
+# → 5,121 trainable parameters, Hessian ≈ 200 MB
+# ---------------------------------------------------------------------------
+network:
+  layer_dims: [3, 40, 40, 40, 40, 1]
+  activation: "tanh"        # Options: tanh, relu, gelu, silu, sigmoid
+  output_scaling: 1.0       # Multiply network output by this constant
+  final_layer_init: "variance_scaling"  # Options: variance_scaling, xavier, default
+
+# ---------------------------------------------------------------------------
+# Training schedule
+# Phase 1: Adam (first-order, fast warmup)
+# Phase 2: SSBroyden2 (quasi-Newton, precise convergence)
+# ---------------------------------------------------------------------------
+training:
+  adam:
+    epochs: 2000            # Number of Adam iterations
+    lr: 0.001               # Initial learning rate
+    betas: [0.99, 0.999]    # Adam momentum parameters (β₁, β₂)
+    eps: 1.0e-20            # Adam epsilon for numerical stability
+    lr_decay_rate: 0.98     # Multiplicative decay factor
+    lr_decay_steps: 1000    # Decay period (lr *= rate^(step/steps))
+  bfgs:
+    epochs: 10000           # Total BFGS iterations
+    batch_size: 500         # Re-call minimize() every N iters (Nchange)
+    method: "BFGS"          # SciPy method name
+    variant: "SSBroyden2"   # Patched variant: BFGS, BFGS_scipy,
+                            #   SSBFGS_OL, SSBFGS_AB, SSBroyden1, SSBroyden2
+    initial_scale: false    # Nocedal-Wright initial H₀ scaling
+    power: 1.0              # Loss transform: L_eff = L^(1/power)
+
+# ---------------------------------------------------------------------------
+# Collocation point sampling
+# Interior: random (t, x, y) for PDE residual
+# Initial:  random (0, x, y) for IC enforcement
+# Boundary: paired points on opposing faces for periodic matching
+# ---------------------------------------------------------------------------
+sampling:
+  n_interior: 10000         # Number of PDE collocation points
+  n_initial: 1000           # Number of IC enforcement points
+  n_boundary: 500           # Number of boundary point pairs (per dimension)
+  resample_every: 500       # Resample collocation points every N iterations
+  rad:
+    enabled: true           # Residual-Adaptive Distribution
+    k1: 1.0                 # |residual|^k1  weighting exponent
+    k2: 1.0                 # Baseline probability constant
+    n_candidates: 50000     # Candidate pool for RAD sampling
+
+# ---------------------------------------------------------------------------
+# Loss function weights
+# Total loss = λ_pde·L_PDE + λ_ic·L_IC + λ_bc·L_BC
+# ---------------------------------------------------------------------------
+loss_weights:
+  pde: 1.0                  # PDE residual weight
+  ic: 5.0                   # Initial condition weight
+  bc: 5.0                   # Boundary condition weight
+
+# ---------------------------------------------------------------------------
+# Logging and output
+# ---------------------------------------------------------------------------
+logging:
+  print_every: 100          # Print loss every N iterations
+  results_dir: "results_cahn_hilliard"
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+seed: 2                     # Global random seed (torch + numpy)
+dtype: "float64"            # float32 or float64 (float64 needed for BFGS)

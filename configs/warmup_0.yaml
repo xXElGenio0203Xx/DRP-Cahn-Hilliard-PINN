@@ -1,0 +1,91 @@
+# ============================================================================
+# Experiment: No Adam Warmup (SSBroyden2 from scratch)
+# ============================================================================
+# Launches SSBroyden2 immediately with NO Adam warmup.  The entire 12,000
+# iteration budget goes to the quasi-Newton optimizer.
+#
+# Risk: BFGS starts from the random initialisation.  The initial Hessian
+# approximation H₀ = I may be very far from the true curvature, causing
+# slow early progress or instability.
+#
+# Purpose: test whether Adam warmup is essential or just beneficial.
+# ============================================================================
+
+experiment:
+  name: "warmup_0"
+  description: >
+    Zero Adam warmup.  12,000 SSBroyden2 iterations from random init.
+    Tests whether quasi-Newton alone can train from scratch.
+
+equation:
+  D: 1.0
+  a2: 1.0
+  a4: 1.0
+
+domain:
+  x_min: 0.0
+  x_max: 128.0
+  y_min: 0.0
+  y_max: 128.0
+  t_min: 0.0
+  t_max: 20.0
+  normalize_inputs: true
+
+initial_condition:
+  type: "uniform_random"
+  low: -1.0
+  high: 1.0
+  grid_nx: 128
+  grid_ny: 128
+  smoothing_sigma: 2.0
+  seed: 42
+
+boundary_conditions:
+  type: "periodic"
+  enforcement: "soft"
+  derivative_order: 1
+
+network:
+  layer_dims: [3, 40, 40, 40, 40, 1]
+  activation: "tanh"
+  output_scaling: 1.0
+  final_layer_init: "variance_scaling"
+
+training:
+  adam:
+    epochs: 0               # No warmup
+    lr: 0.001
+    betas: [0.99, 0.999]
+    eps: 1.0e-20
+    lr_decay_rate: 0.98
+    lr_decay_steps: 1000
+  bfgs:
+    epochs: 12000           # Full budget to BFGS
+    batch_size: 500
+    method: "BFGS"
+    variant: "SSBroyden2"
+    initial_scale: false
+    power: 1.0
+
+sampling:
+  n_interior: 10000
+  n_initial: 1000
+  n_boundary: 500
+  resample_every: 500
+  rad:
+    enabled: true
+    k1: 1.0
+    k2: 1.0
+    n_candidates: 50000
+
+loss_weights:
+  pde: 1.0
+  ic: 5.0
+  bc: 5.0
+
+logging:
+  print_every: 100
+  results_dir: "results/warmup_0"
+
+seed: 2
+dtype: "float64"

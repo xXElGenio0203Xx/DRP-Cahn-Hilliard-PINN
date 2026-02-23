@@ -1,0 +1,1228 @@
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+
+% ── Code listing style ───────────────────────────────────────────────────
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codeframe}{RGB}{200,200,200}
+\definecolor{codecomment}{RGB}{0,128,0}
+\definecolor{codestring}{RGB}{163,21,21}
+\definecolor{codekeyword}{RGB}{0,0,200}
+
+\lstdefinestyle{pythonstyle}{
+    language=Python,
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{codeframe},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{codekeyword}\bfseries,
+    commentstyle=\color{codecomment}\itshape,
+    stringstyle=\color{codestring},
+    showstringspaces=false,
+    breaklines=true,
+    breakatwhitespace=false,
+    tabsize=4,
+    captionpos=b,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=8pt,
+    xleftmargin=1.5em,
+    framexleftmargin=1.5em,
+    aboveskip=1em,
+    belowskip=1em,
+    morekeywords={self,True,False,None,as,with,lambda},
+    literate={→}{$\rightarrow$}1 {←}{$\leftarrow$}1,
+}
+\lstset{style=pythonstyle}
+
+% ── Header / Footer ──────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Burgers' Equation PINN --- PyTorch Implementation}
+\lhead{Optimizing the Optimizer}
+\cfoot{\thepage}
+
+% ── Title ─────────────────────────────────────────────────────────────────
+\title{%
+  \textbf{Line-by-Line Analysis of the Burgers' Equation PINN}\\[4pt]
+  \large PyTorch Implementation with Self-Scaled Broyden Optimization\\[4pt]
+  \normalsize Based on \emph{Optimizing the Optimizer for PINNs} (Kiyani et al., CMAME 2025)
+}
+\author{}
+\date{\today}
+
+% ══════════════════════════════════════════════════════════════════════════
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ======================================================================
+\section{Overview}
+% ======================================================================
+
+This document provides a complete, section-by-section explanation of the
+\texttt{Burgers\_Equation\_Pytorch.ipynb} notebook. The notebook solves
+the one-dimensional viscous Burgers' equation with a \textbf{Physics-Informed
+Neural Network (PINN)}, using a two-phase training strategy:
+
+\begin{enumerate}
+  \item \textbf{Phase 1 --- Adam} (first-order): 1\,000 warmup iterations to
+        bring the network parameters into a good basin.
+  \item \textbf{Phase 2 --- Self-Scaled Broyden} (second-order, quasi-Newton):
+        10\,000 iterations using a patched \texttt{scipy.optimize.minimize}
+        that implements the self-scaled Broyden family updates from the paper.
+\end{enumerate}
+
+The PDE, its boundary/initial conditions, the neural network architecture,
+the loss function, and both optimization phases are covered below.
+
+% ======================================================================
+\section{Section 1: Hyperparameters}
+\label{sec:hyperparams}
+% ======================================================================
+
+\subsection*{The PDE}
+
+The \textbf{1D viscous Burgers' equation} is:
+\begin{equation}
+\boxed{
+  \frac{\partial u}{\partial t} + u\,\frac{\partial u}{\partial x}
+  = \nu\,\frac{\partial^2 u}{\partial x^2}
+}
+\label{eq:burgers}
+\end{equation}
+where $u(t,x)$ is the unknown velocity field and $\nu$ is the kinematic
+viscosity.  The nonlinear convection term $u\,u_x$ causes wave steepening,
+while the diffusion term $\nu\,u_{xx}$ smooths gradients.  When $\nu$ is
+small (as here, $\nu = 0.01/\pi \approx 0.00318$), a steep \emph{shock-like}
+front develops, making the problem challenging for neural networks.
+
+\subsection*{Domain and conditions}
+
+\begin{align}
+  &\text{Spatial domain:}  &x &\in [-1,\, 1] \\
+  &\text{Time domain:}     &t &\in [0,\, 1]   \\
+  &\text{Initial condition:} &u(0, x) &= -\sin(\pi x) \label{eq:ic}\\
+  &\text{Boundary conditions:} &u(t, -1) = u(t, 1) &= 0 \quad\text{(Dirichlet)} \label{eq:bc}
+\end{align}
+
+\subsection*{Network architecture}
+
+The MLP has the layer structure:
+\[
+  (t,x) \;\xrightarrow{\;\text{Linear}\;}\;
+  \underbrace{20 \to 20 \to 20 \to 20}_{\text{4 hidden layers, tanh}}
+  \;\xrightarrow{\;\text{Linear}\;}\; u
+\]
+giving \texttt{layer\_dims = (2, 20, 20, 20, 20, 1)}.
+
+\subsection*{Training schedule}
+
+\begin{center}
+\begin{tabular}{lrl}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Meaning} \\
+\midrule
+\texttt{Nepochs\_ADAM} & 1\,000   & Adam warmup iterations \\
+\texttt{Nchange}       & 500      & Resample collocation points every 500 iters \\
+\texttt{Nint}          & 8\,000   & Interior collocation points \\
+\texttt{N0}            & 500      & Initial-condition points ($t{=}0$) \\
+\texttt{Nb}            & 500      & Boundary points ($x{=}{\pm}1$) \\
+\texttt{$k_1, k_2$}   & 1, 1     & RAD parameters \\
+$\nu$                  & $0.01/\pi$ & Viscosity \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection*{Code}
+
+\begin{lstlisting}
+scaling = 1
+L1 = 20
+layer_dims = (2, L1, L1, L1, L1, 1)
+
+L = 2
+x0 = -1
+xf = x0 + L   # = 1
+tfinal = 1
+nu = 0.01 / np.pi
+
+Nepochs_ADAM = 1000
+Nchange = 500
+Nint    = 8000
+N0      = 500
+Nb      = 500
+Nprint  = 100
+
+k1 = 1;  k2 = 1
+rad_args = (k1, k2)
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 2: Neural Network Definition}
+\label{sec:network}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+A fully-connected feed-forward neural network (MLP) maps $(t,x)$ to $\hat{u}$:
+\begin{equation}
+  \hat{u}(t,x;\bm{\theta}) = \sigma_{\text{out}}\!\Bigl(
+    \bm{W}^{[5]}\,\sigma\!\bigl(
+      \bm{W}^{[4]}\,\sigma\!\bigl(
+        \bm{W}^{[3]}\,\sigma\!\bigl(
+          \bm{W}^{[2]}\,\sigma\!\bigl(
+            \bm{W}^{[1]} \begin{pmatrix} t \\ x \end{pmatrix}
+            + \bm{b}^{[1]}
+          \bigr) + \bm{b}^{[2]}
+        \bigr) + \bm{b}^{[3]}
+      \bigr) + \bm{b}^{[4]}
+    \bigr) + \bm{b}^{[5]}
+  \Bigr)
+\label{eq:mlp}
+\end{equation}
+where:
+\begin{itemize}[nosep]
+  \item $\sigma(z) = \tanh(z)$ is the hidden-layer activation (smooth and $C^\infty$,
+        essential because we differentiate through the network to get $u_t$, $u_x$, $u_{xx}$).
+  \item $\sigma_{\text{out}}(z) = z \cdot \texttt{scaling}$ is the output activation
+        (identity when \texttt{scaling}$=1$).
+  \item $\bm{\theta} = \{(\bm{W}^{[\ell]}, \bm{b}^{[\ell]})\}_{\ell=1}^{5}$
+        collects all trainable parameters.
+\end{itemize}
+
+The total parameter count is:
+\[
+  (2 \times 20 + 20) + 3 \times (20 \times 20 + 20) + (20 \times 1 + 1)
+  = 60 + 1260 + 21 = 1341
+\]
+
+\subsection*{Weight initialization}
+
+The final linear layer uses a \emph{variance-scaling} initializer to keep
+the output variance $\approx 1$:
+\begin{equation}
+  n = \frac{\text{fan\_in} + \text{fan\_out}}{2}, \qquad
+  \ell = \sqrt{\frac{3 \cdot s}{n}}, \qquad
+  W_{ij} \sim \mathcal{U}(-\ell,\, \ell), \qquad
+  b_j = 0
+\label{eq:init}
+\end{equation}
+where $s = 1/\texttt{scaling}^2$.  This matches TensorFlow's
+\texttt{VarianceScaling(mode='fan\_avg')}.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+class CustomActivation(nn.Module):
+    def __init__(self, **kwargs):
+        super().__init__()
+    def forward(self, x):
+        return x * scaling
+
+
+def init_variance_scaling_fan_avg_uniform(linear, scale):
+    fan_in, fan_out = linear.in_features, linear.out_features
+    n = 0.5 * (fan_in + fan_out)
+    limit = math.sqrt(3.0 * scale / n)
+    with torch.no_grad():
+        linear.weight.uniform_(-limit, limit)
+        if linear.bias is not None:
+            linear.bias.zero_()
+
+
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(layer_dims[0], layer_dims[1]), nn.Tanh(),
+            nn.Linear(layer_dims[1], layer_dims[2]), nn.Tanh(),
+            nn.Linear(layer_dims[2], layer_dims[3]), nn.Tanh(),
+            nn.Linear(layer_dims[3], layer_dims[4]), nn.Tanh(),
+            nn.Linear(layer_dims[4], layer_dims[5]),
+            CustomActivation(),
+        )
+        final_linear = self.net[-2]
+        init_variance_scaling_fan_avg_uniform(
+            final_linear, scale=1.0/(scaling**2))
+
+    def forward(self, x):
+        return self.net(x)
+
+N = Net()
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 3: Data Sampling Functions}
+\label{sec:sampling}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+The PINN loss requires three sets of collocation points sampled randomly
+at each training stage:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Interior points} $\{(t_i, x_i)\}_{i=1}^{N_{\mathrm{int}}}$,
+        $(t_i, x_i) \sim \mathcal{U}([0,1] \times [-1,1])$, where the PDE
+        residual is enforced.
+  \item \textbf{Initial-condition points} $\{(0, x_j)\}_{j=1}^{N_0}$,
+        $x_j \sim \mathcal{U}([-1,1])$, where the IC is enforced.
+  \item \textbf{Boundary points} $\{(t_k, x_k)\}_{k=1}^{N_b}$,
+        $t_k \sim \mathcal{U}([0,1])$, $x_k \in \{-1, 1\}$ chosen uniformly
+        at random, where the BCs are enforced.
+\end{enumerate}
+
+Additionally, \textbf{Residual-based Adaptive Distribution (RAD)} resamples
+interior points proportionally to the PDE residual magnitude, concentrating
+points where the network is performing worst:
+\begin{equation}
+  p(t_i, x_i) \;\propto\;
+  \frac{|f(t_i, x_i)|^{k_1}}{\overline{|f|^{k_1}}} + k_2
+\label{eq:rad}
+\end{equation}
+where $f$ is the PDE residual, $\overline{(\cdot)}$ denotes the mean,
+$k_1$ controls the aggressiveness of focusing, and $k_2$ ensures a
+baseline probability everywhere.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+def generate_inputs(Nint):
+    t = tfinal * np.random.rand(Nint)
+    x = L * np.random.rand(Nint) + x0
+    X = np.hstack((t[:, None], x[:, None]))
+    return torch.as_tensor(X)
+
+def initial_points(N0):
+    t = np.zeros(N0)
+    x = L * np.random.rand(N0) + x0
+    X = np.hstack((t[:, None], x[:, None]))
+    return torch.as_tensor(X)
+
+def boundary_points(Nb):
+    t = tfinal * np.random.rand(Nb)
+    x = L * np.random.randint(0, 2, size=(Nb,)) + x0
+    X = np.hstack((t[:, None], x[:, None]))
+    return torch.as_tensor(X)
+
+def generate_validation(Nt, Nx):
+    x = np.linspace(x0, xf, Nx)
+    t = np.linspace(0, tfinal, Nt)
+    x, t = np.meshgrid(x, t)
+    X = np.hstack((t.flatten()[:, None],
+                   x.flatten()[:, None]))
+    return torch.as_tensor(X), t, x
+
+def adaptive_rad(N, Nint, rad_args, Nsampling=50000):
+    Xtest = generate_inputs(Nsampling)
+    k1, k2 = rad_args
+    Y = torch.abs(get_results(N, Xtest)[-1]).reshape(-1)
+    w = (Y ** k1)
+    err_eq = w / w.mean() + k2
+    p = (err_eq / err_eq.sum()).clamp_min(1e-12)
+    X_ids = torch.multinomial(
+        p, num_samples=Nint, replacement=False)
+    return Xtest[X_ids]
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 4: PDE Conditions (IC and BC)}
+\label{sec:conditions}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+The exact conditions that the PINN must satisfy:
+
+\begin{align}
+  \text{Initial condition:}\quad & u(0, x) = -\sin(\pi x)
+    && \forall\, x \in [-1,1] \label{eq:ic2}\\
+  \text{Left BC:}\quad           & u(t, -1) = 0
+    && \forall\, t \in [0,1] \label{eq:bcl}\\
+  \text{Right BC:}\quad          & u(t, +1) = 0
+    && \forall\, t \in [0,1] \label{eq:bcr}
+\end{align}
+
+At $t=0$, $u(0,x) = -\sin(\pi x)$ is a smooth sinusoidal profile.
+As time evolves, the nonlinear convection steepens this profile
+into a \emph{shock-like} front near $x=0$ for small $\nu$.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+def uinit(X):
+    x = X[:, 1:2]                     # shape (N, 1)
+    return -torch.sin(torch.pi * x)   # -sin(pi*x)
+
+def uleft(X):
+    Xleft = X[X[:, 1] == x0]
+    t = Xleft[:, 0]
+    return torch.zeros((t.shape[0], 1),
+                       dtype=torch.float64)
+
+def uright(X):
+    Xright = X[X[:, 1] == xf]
+    t = Xright[:, 0]
+    return torch.zeros((t.shape[0], 1),
+                       dtype=torch.float64)
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 5: Forward Pass and PDE Residual}
+\label{sec:residual}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+This is the \textbf{core of the PINN}.  Given the network's prediction
+$\hat{u}(t,x;\bm\theta)$, we compute the PDE residual using
+\emph{automatic differentiation}:
+
+\begin{equation}
+  f(t,x;\bm\theta) = \frac{\partial \hat{u}}{\partial t}
+  + \hat{u}\,\frac{\partial \hat{u}}{\partial x}
+  - \nu\,\frac{\partial^2 \hat{u}}{\partial x^2}
+\label{eq:residual}
+\end{equation}
+
+The derivatives are computed by \texttt{torch.autograd.grad}:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Forward pass}: $\hat{u} = \mathcal{N}(t,x;\bm\theta)$.
+  \item \textbf{First derivatives}: Compute $\nabla_{(t,x)} \hat{u}$
+        via a single \texttt{autograd.grad} call.  Since $\hat{u}$
+        is a vector (one value per sample), we pass
+        \texttt{grad\_outputs = \bm{1}}$ (the vector-Jacobian product
+        $\bm{1}^\top \frac{\partial \hat{u}}{\partial (t,x)}$):
+        \[
+          \frac{\partial \hat{u}}{\partial t} = \text{grads}[:,0],
+          \qquad
+          \frac{\partial \hat{u}}{\partial x} = \text{grads}[:,1]
+        \]
+  \item \textbf{Second derivative}: Differentiate $u_x$ again
+        w.r.t.\ the input tensor to get $u_{xx}$:
+        \[
+          \frac{\partial^2 \hat{u}}{\partial x^2}
+          = \frac{\partial}{\partial x}
+            \!\left(\frac{\partial \hat{u}}{\partial x}\right)
+        \]
+  \item \textbf{Assemble}: $f = u_t + \hat{u}\,u_x - \nu\,u_{xx}$.
+\end{enumerate}
+
+The flag \texttt{create\_graph=True} is essential: it tells PyTorch to
+record the differentiation operation itself in the computational graph, so
+that we can later backpropagate through the residual to update $\bm\theta$.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+def output(N, X):
+    Nout = N(X)
+    u = Nout[:, 0:1]
+    return u
+
+def get_results(N, X):
+    X.requires_grad_(True)
+    u = output(N, X)
+
+    # du/dt and du/dx
+    grads = torch.autograd.grad(
+        u, X,
+        grad_outputs=torch.ones_like(u),
+        create_graph=True,
+        retain_graph=True)[0]
+    u_t = grads[:, 0]
+    u_x = grads[:, 1]
+
+    # d^2u/dx^2
+    u_xx = torch.autograd.grad(
+        u_x, X,
+        grad_outputs=torch.ones_like(u_x),
+        create_graph=True,
+        retain_graph=True)[0][:, 1]
+
+    # PDE residual
+    fu = u_t + u[:, 0] * u_x - nu * u_xx
+    return u, fu
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 6: Loss Function}
+\label{sec:loss}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+The total PINN loss is a weighted sum of three mean-squared-error terms:
+
+\begin{equation}
+\boxed{
+  \mathcal{L}(\bm\theta)
+  = \underbrace{
+      \frac{1}{N_{\mathrm{int}}} \sum_{i=1}^{N_{\mathrm{int}}}
+      \bigl[f(t_i, x_i;\bm\theta)\bigr]^2
+    }_{\mathcal{L}_{\mathrm{PDE}}}
+  + \lambda_0
+    \underbrace{
+      \frac{1}{N_0} \sum_{j=1}^{N_0}
+      \bigl[\hat{u}(0, x_j) - u_0(x_j)\bigr]^2
+    }_{\mathcal{L}_{\mathrm{IC}}}
+  + \lambda_B
+    \underbrace{
+      \Bigl(
+        \frac{1}{N_b^L}\!\sum_k\!\bigl[\hat{u}(t_k, -1)\bigr]^2
+        + \frac{1}{N_b^R}\!\sum_k\!\bigl[\hat{u}(t_k, +1)\bigr]^2
+      \Bigr)
+    }_{\mathcal{L}_{\mathrm{BC}}}
+}
+\label{eq:loss}
+\end{equation}
+
+where:
+\begin{itemize}[nosep]
+  \item $\mathcal{L}_{\mathrm{PDE}}$: enforces the Burgers' equation in
+        the domain interior.
+  \item $\mathcal{L}_{\mathrm{IC}}$: enforces the initial condition
+        $u(0,x) = -\sin(\pi x)$.
+  \item $\mathcal{L}_{\mathrm{BC}}$: enforces the Dirichlet boundary
+        conditions $u(t,\pm 1) = 0$.
+  \item $\lambda_0 = 5$ and $\lambda_B = 5$ weight the data terms
+        relative to the PDE residual.  Higher weights force stricter
+        enforcement of boundary/initial data.
+\end{itemize}
+
+\subsection*{Code}
+
+\begin{lstlisting}
+loss_function = nn.MSELoss()
+lam0 = 5.0   # IC weight
+lamB = 5.0   # BC weight
+
+def loss(fu, u0, u0pinn, ul, ulpinn, ur, urpinn):
+    Ntot = fu.shape[0]
+    zeros = torch.zeros((Ntot, 1),
+        dtype=torch.get_default_dtype(),
+        device=fu.device)
+    fu_col = fu.reshape(-1, 1)
+
+    loss_value = (
+        loss_function(fu_col, zeros)
+        + lam0 * loss_function(u0, u0pinn)
+        + lamB * (loss_function(ul, ulpinn)
+                  + loss_function(ur, urpinn))
+    )
+    return loss_value
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 7: Gradient Computation and Adam Training Step}
+\label{sec:adam_step}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+During Phase~1 (Adam), at each iteration we:
+
+\begin{enumerate}[nosep]
+  \item Evaluate the loss $\mathcal{L}(\bm\theta)$ from Eq.~\eqref{eq:loss}.
+  \item Compute the gradient $\nabla_{\bm\theta} \mathcal{L}$ via
+        backpropagation (\texttt{loss.backward()}).
+  \item Update parameters using Adam:
+\end{enumerate}
+
+\begin{align}
+  \bm{m}_t &= \beta_1\,\bm{m}_{t-1} + (1-\beta_1)\,\bm{g}_t
+    & &\text{(first moment estimate)} \\
+  \bm{v}_t &= \beta_2\,\bm{v}_{t-1} + (1-\beta_2)\,\bm{g}_t^2
+    & &\text{(second moment estimate)} \\
+  \hat{\bm{m}}_t &= \bm{m}_t / (1-\beta_1^t)
+    & &\text{(bias correction)} \\
+  \hat{\bm{v}}_t &= \bm{v}_t / (1-\beta_2^t) \\
+  \bm\theta_{t+1} &= \bm\theta_t
+    - \eta\,\hat{\bm{m}}_t / (\sqrt{\hat{\bm{v}}_t} + \epsilon)
+    & &\text{(parameter update)}
+\label{eq:adam}
+\end{align}
+with $\eta = 5\times 10^{-3}$, $\beta_1 = 0.99$, $\beta_2 = 0.999$,
+$\epsilon = 10^{-20}$.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+def grads(N, X, X0, Xb):
+    for p in N.parameters():
+        p.grad = None
+
+    X  = X.clone().detach().requires_grad_(True)
+    X0 = X0.clone().detach().requires_grad_(True)
+
+    _, fu   = get_results(N, X)
+    u0      = uinit(X0)
+    u0pinn  = output(N, X0)
+    ul      = uleft(Xb)
+    ur      = uright(Xb)
+    mask_l  = (Xb[:, 1] == x0)
+    mask_r  = (Xb[:, 1] == xf)
+    ulpinn  = output(N, Xb[mask_l])
+    urpinn  = output(N, Xb[mask_r])
+
+    loss_value = loss(fu, u0, u0pinn,
+                      ul, ulpinn, ur, urpinn)
+    loss_value.backward()
+
+    gradsN = [p.grad for p in N.parameters()]
+    return gradsN, loss_value
+
+
+def training(N, X, X0, Xb, optimizer):
+    _, loss_value = grads(N, X, X0, Xb)
+    optimizer.step()
+    return loss_value
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 8: Generate Initial Training Data}
+\label{sec:data}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+Before training begins, we sample the three point sets:
+\begin{itemize}[nosep]
+  \item $N_{\mathrm{int}} = 8000$ interior points
+        $(t_i, x_i) \sim \mathcal{U}([0,1]\times[-1,1])$
+  \item $N_0 = 500$ initial-condition points $(0, x_j)$
+  \item $N_b = 500$ boundary points $(t_k, \pm 1)$
+\end{itemize}
+
+These are re-sampled periodically during training using RAD (Section~\ref{sec:sampling}).
+
+\subsection*{Code}
+
+\begin{lstlisting}
+X  = generate_inputs(Nint)   # 8000 interior pts
+X0 = initial_points(N0)      # 500 IC pts
+Xb = boundary_points(Nb)     # 500 BC pts
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 9: Load Reference Solution}
+\label{sec:reference}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+A high-fidelity reference solution $u_{\mathrm{ref}}(t,x)$ is loaded from
+a MATLAB \texttt{.mat} file.  This is the ``ground truth'' obtained by a
+conventional numerical method (e.g., spectral or finite-difference solver).
+
+The relative $\ell^2$ error is computed as:
+\begin{equation}
+  e_{\mathrm{rel}} = \frac{\|u_{\mathrm{ref}} - \hat{u}\|_2}{\|\hat{u}\|_2 + \epsilon}
+\label{eq:rel_error}
+\end{equation}
+with $\epsilon = 10^{-12}$ for numerical stability.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+mat    = scipy.io.loadmat("burgers_canonical.mat")
+u_ref  = mat["usol"]
+t_star = mat["t"].ravel()
+x_star = mat["x"].ravel()
+x_star, t_star = np.meshgrid(x_star, t_star)
+
+X_star = torch.as_tensor(
+    np.hstack((t_star.reshape(-1,1),
+               x_star.reshape(-1,1))),
+    dtype=torch.get_default_dtype(),
+    device=device)
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 10: Phase 1 --- Adam Training}
+\label{sec:adam}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+Phase~1 runs $1{,}000$ Adam iterations. The learning rate follows an
+exponential decay schedule:
+\begin{equation}
+  \eta_t = \eta_0 \cdot 0.98^{t/1000}
+  = 5\times10^{-3} \cdot 0.98^{t/1000}
+\label{eq:lr_schedule}
+\end{equation}
+
+Every $N_{\mathrm{change}} = 500$ epochs, the collocation points are
+resampled using RAD (Eq.~\eqref{eq:rad}), which concentrates points
+in regions of high PDE residual.  This adaptive refinement is critical
+for problems with steep gradients or shocks.
+
+Every $N_{\mathrm{print}} = 100$ epochs, the relative $\ell^2$ error
+(Eq.~\eqref{eq:rel_error}) is computed against the reference solution
+for monitoring.
+
+\emph{Purpose:} Adam is fast per-iteration but converges slowly to
+high accuracy.  It gets the network into a good basin of attraction
+from which the more powerful second-order optimizer can take over.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+rel_adam = []
+optimizer = torch.optim.Adam(
+    N.parameters(), lr=5e-3,
+    betas=(0.99, 0.999), eps=1e-20)
+adam_scheduler = torch.optim.lr_scheduler.LambdaLR(
+    optimizer,
+    lr_lambda=lambda step: 0.98 ** (step / 1000.0))
+
+adam_losses = []
+adam_t0 = perf_counter()
+
+for epoch in range(Nepochs_ADAM):
+    if (epoch + 1) % Nchange == 0:
+        X  = adaptive_rad(N, Nint, rad_args)
+        X0 = initial_points(N0)
+        Xb = boundary_points(Nb)
+
+    loss_value = training(N, X, X0, Xb, optimizer)
+    adam_losses.append(
+        float(loss_value.detach().cpu().item()))
+
+    if (epoch + 1) % Nprint == 0:
+        print(template.format(
+            epoch + 1, adam_losses[-1]))
+        N.eval()
+        with torch.no_grad():
+            u_pred = output(N, X_star) \
+                .detach().cpu().numpy() \
+                .reshape(u_ref.shape)
+        N.train()
+        num = np.linalg.norm(u_ref - u_pred)
+        den = np.linalg.norm(u_pred) + 1e-12
+        rel = num / den
+        rel_adam.append((epoch + 1, float(rel)))
+
+adam_time_sec = perf_counter() - adam_t0
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 11: Nested Tensor Utility}
+\label{sec:nested}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+SciPy's \texttt{minimize} works with a single flat vector
+$\bm\theta \in \mathbb{R}^{1341}$, but PyTorch stores parameters as
+structured tensors (weight matrices and bias vectors).  The
+\texttt{nested\_tensor} utility converts between the two representations.
+
+For \texttt{layer\_dims = (2, 20, 20, 20, 20, 1)}, the flat vector is
+unpacked into 10 arrays:
+\[
+  \bm\theta = [\,
+    \underbrace{\bm{W}^{[1]}}_{2\times 20},\;
+    \underbrace{\bm{b}^{[1]}}_{20},\;
+    \underbrace{\bm{W}^{[2]}}_{20\times 20},\;
+    \underbrace{\bm{b}^{[2]}}_{20},\;
+    \ldots,\;
+    \underbrace{\bm{W}^{[5]}}_{20\times 1},\;
+    \underbrace{\bm{b}^{[5]}}_{1}
+  \,]
+\]
+
+The flat vector has length:
+\[
+  |\bm\theta| = \sum_{\ell=1}^{5}
+  \bigl(d_{\ell-1} \cdot d_\ell + d_\ell\bigr)
+  = 40{+}20 + 400{+}20 + 400{+}20 + 400{+}20 + 20{+}1 = 1341
+\]
+
+\subsection*{Code}
+
+\begin{lstlisting}
+def nested_tensor(grad, layer_dims,
+                  train_activations=False,
+                  bias=True):
+    grad = np.asarray(grad).ravel()
+    if not train_activations:
+        if bias:
+            temp = [None]*(2*len(layer_dims) - 2)
+        else:
+            temp = [None]*(2*len(layer_dims) - 3)
+        index = 0
+        for i in range(len(temp)):
+            if i % 2 == 0:
+                k = i // 2
+                fan_in  = layer_dims[k]
+                fan_out = layer_dims[k + 1]
+                size = fan_in * fan_out
+                temp[i] = grad[index:index+size] \
+                    .reshape(fan_in, fan_out)
+                index += size
+            else:
+                k = i - (i // 2)
+                bsz = layer_dims[k]
+                temp[i] = grad[index:index+bsz]
+                index += bsz
+        return temp
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 12: SciPy-Compatible Loss + Gradient Wrapper}
+\label{sec:wrapper}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+SciPy's \texttt{minimize(fun, x0, jac=True)} expects a callable:
+\[
+  \texttt{fun}(\bm\theta) \;\to\;
+  \bigl(\mathcal{L}(\bm\theta),\;
+        \nabla_{\bm\theta}\mathcal{L}\bigr)
+  \qquad
+  \bm\theta \in \mathbb{R}^{1341},\;
+  \nabla_{\bm\theta}\mathcal{L} \in \mathbb{R}^{1341}
+\]
+
+The wrapper performs these steps:
+\begin{enumerate}[nosep]
+  \item Receive $\bm\theta$ as a flat \texttt{numpy} array from SciPy.
+  \item Convert to a PyTorch tensor and load into the network via
+        \texttt{vector\_to\_parameters}.
+  \item Run the PyTorch forward/backward pass to get $\mathcal{L}$ and
+        $\nabla_{\bm\theta}\mathcal{L}$.
+  \item Flatten the gradient list and return both as \texttt{numpy} arrays.
+\end{enumerate}
+
+An optional \textbf{power transform} is supported:
+$\mathcal{L}_{\mathrm{eff}} = \mathcal{L}^{1/p}$.
+When $p=1$ (default), the loss is used directly.  When $p=2$, the
+optimizer minimizes $\sqrt{\mathcal{L}}$, which can improve conditioning.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+power = 1.0
+
+def loss_and_gradient_torch(N, X, X0, Xb,
+                            power=power):
+    X = X.clone().detach().requires_grad_(True)
+    _, fu = get_results(N, X)
+    u0     = uinit(X0)
+    u0pinn = output(N, X0)
+    ul     = uleft(Xb)
+    mask_l = (Xb[:, 1] == x0)
+    ulpinn = output(N, Xb[mask_l])
+    ur     = uright(Xb)
+    mask_r = (Xb[:, 1] == xf)
+    urpinn = output(N, Xb[mask_r])
+
+    loss_value = loss(fu, u0, u0pinn,
+                      ul, ulpinn, ur, urpinn)
+    loss_root = (loss_value
+        if power == 1.0
+        else loss_value ** (1.0 / power))
+
+    params = list(N.parameters())
+    gradsN = torch.autograd.grad(
+        loss_root, params,
+        create_graph=False,
+        retain_graph=False,
+        allow_unused=False)
+    return loss_root, gradsN
+
+
+def loss_and_gradient(weights, N, X, X0, Xb,
+                      layer_dims=None):
+    first_param = next(N.parameters())
+    device = first_param.device
+    dtype  = first_param.dtype
+    w_tensor = torch.as_tensor(
+        weights, dtype=dtype, device=device)
+    with torch.no_grad():
+        vector_to_parameters(
+            w_tensor, N.parameters())
+    loss_val, grads_list = \
+        loss_and_gradient_torch(
+            N, X, X0, Xb, power=power)
+    grads_flat = torch.cat(
+        [g.reshape(-1) for g in grads_list])
+    return (float(loss_val.detach().cpu().item()),
+            grads_flat.detach().cpu().numpy())
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 13: Phase 2 Setup --- Self-Scaled BFGS}
+\label{sec:bfgs_setup}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+\subsubsection*{Why switch from Adam to BFGS?}
+
+Adam is a \emph{first-order} method: each step uses only $\nabla\mathcal{L}$.
+Near the solution, where the loss landscape is nearly quadratic, the
+convergence rate of first-order methods is only \emph{linear} (geometric
+with a rate $\approx 1 - 2/\kappa$, where $\kappa$ is the condition number
+of the Hessian).
+
+In contrast, \textbf{BFGS} is a \emph{quasi-Newton} method that
+builds an approximate inverse Hessian $H_k \approx
+[\nabla^2 \mathcal{L}]^{-1}$, achieving \emph{superlinear} convergence
+near the solution.
+
+\subsubsection*{Standard BFGS update}
+
+At iteration $k$, after a line search determines step size $\alpha_k$:
+\begin{align}
+  \bm{s}_k &= \alpha_k\,\bm{p}_k = \bm\theta_{k+1} - \bm\theta_k \\
+  \bm{y}_k &= \nabla\mathcal{L}_{k+1} - \nabla\mathcal{L}_k \\
+  \rho_k   &= \frac{1}{\bm{y}_k^\top \bm{s}_k}
+\end{align}
+The inverse Hessian is updated:
+\begin{equation}
+  H_{k+1} = H_k
+  - \rho_k\,(H_k \bm{y}_k\,\bm{s}_k^\top + \bm{s}_k\,\bm{y}_k^\top H_k)
+  + \rho_k\,(1 + \bm{y}_k^\top H_k\,\bm{y}_k\,\rho_k)\,
+    \bm{s}_k\,\bm{s}_k^\top
+\label{eq:bfgs}
+\end{equation}
+
+\subsubsection*{Self-Scaled Broyden (SSBroyden2)}
+
+The \textbf{self-scaled} variants (from the paper) introduce a scaling
+factor $\tau_k$ that multiplies $H_k$ \emph{before} the rank-2 update,
+plus a parameter $\theta_k$ that interpolates between DFP and BFGS
+within the Broyden family:
+
+\begin{equation}
+  H_{k+1} = \frac{1}{\tau_k}\left(
+    H_k
+    - \frac{H_k\bm{y}_k\bm{y}_k^\top H_k}{\bm{y}_k^\top H_k\bm{y}_k}
+    + \phi_k\,(\bm{y}_k^\top H_k\bm{y}_k)\,\bm{v}_k\bm{v}_k^\top
+  \right)
+  + \rho_k\,\bm{s}_k\bm{s}_k^\top
+\label{eq:ssbroyden}
+\end{equation}
+where:
+\begin{align}
+  h_k &= \rho_k\,\bm{y}_k^\top H_k\bm{y}_k,
+  \qquad
+  b_k = -\alpha_k\,\rho_k\,\bm{s}_k^\top(\nabla\mathcal{L}_{k+1} - \bm{y}_k) \\
+  a_k &= b_k\,h_k - 1 \label{eq:ak}\\
+  \bm{v}_k &= \rho_k\,\bm{s}_k
+    - \frac{H_k\,\bm{y}_k}{\bm{y}_k^\top H_k\,\bm{y}_k}
+  \label{eq:vk}\\
+  \phi_k &= \frac{1 - \theta_k}{1 + a_k\,\theta_k}
+  \label{eq:phik}
+\end{align}
+
+In \texttt{SSBroyden2}, $\theta_k$ is chosen with a clamped formula:
+\begin{equation}
+  \theta_k = \max\!\left(\theta_k^{-},\;
+    \min\!\left(\theta_k^{+},\; \frac{1-b_k}{b_k}\right)\right)
+\label{eq:theta_clamp}
+\end{equation}
+where $\theta_k^{\pm}$ are bounds derived from positive-definiteness
+constraints.  The scaling factor $\tau_k$ is computed as:
+\begin{equation}
+  \sigma_k = 1 + \theta_k\,a_k,
+  \qquad
+  \sigma_k^{1/(1-N)} = |\sigma_k|^{1/(1-N)}
+\end{equation}
+\begin{equation}
+  \tau_k = \begin{cases}
+    \min\!\bigl(\rho_k^{(k)}\,\sigma_k^{1/(1-N)},\; \sigma_k\bigr)
+      & \text{if } \theta_k \le 0 \\
+    \rho_k^{(k)}\,\min\!\bigl(\sigma_k^{1/(1-N)},\; 1/\theta_k\bigr)
+      & \text{if } \theta_k > 0
+  \end{cases}
+\label{eq:tauk}
+\end{equation}
+with $\rho_k^{(k)} = \min(1, 1/b_k)$.
+
+This scaling keeps the condition number of $H_k$ controlled and
+improves convergence over standard BFGS.
+
+\subsection*{Setup code}
+
+\begin{lstlisting}
+Nbfgs   = 10000
+Nchange = 500
+Nprint  = 100
+n_ckpts = Nbfgs // Nprint
+
+lossbfgs        = np.zeros(n_ckpts)
+validation_list = np.zeros(n_ckpts)
+error_list      = np.zeros(n_ckpts)
+
+Nt = 300; Nx = 300
+Xtest, t, x = generate_validation(Nt, Nx)
+
+initial_weights = parameters_to_vector(
+    [p.detach() for p in N.parameters()]
+).cpu().numpy()
+
+cont = 0   # global BFGS iteration counter
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 14: BFGS Optimizer Configuration}
+\label{sec:bfgs_config}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+The optimizer is configured as:
+\begin{itemize}[nosep]
+  \item \texttt{method = "BFGS"}: selects the BFGS family in SciPy.
+  \item \texttt{method\_bfgs = "SSBroyden2"}: selects the self-scaled
+        Broyden variant~2 from the patched \texttt{\_optimize.py}.
+  \item \texttt{initial\_scale = False}: do \emph{not} apply the
+        Nocedal--Wright initial scaling $H_0 \leftarrow H_0 /
+        (\rho_0\,\|\bm{y}_0\|^2)$ at the first iteration.
+  \item The initial inverse Hessian is $H_0 = I_{1341\times 1341}$,
+        meaning the first BFGS step is simply a gradient descent step:
+        $\Delta\bm\theta = -I\cdot\nabla\mathcal{L} = -\nabla\mathcal{L}$.
+\end{itemize}
+
+A \textbf{callback} function is registered that, every 100 iterations:
+\begin{enumerate}[nosep]
+  \item Records the training loss.
+  \item Evaluates the network on a $300\times 300$ validation grid.
+  \item Computes the relative $\ell^2$ error vs.\ the reference solution.
+\end{enumerate}
+
+\subsection*{Code}
+
+\begin{lstlisting}
+method      = "BFGS"
+method_bfgs = "SSBroyden2"
+initial_scale = False
+
+H0 = np.eye(initial_weights.size,
+             dtype=np.float64)
+
+def callback(*, intermediate_result):
+    global cont, lossbfgs, error_list
+    cont += 1
+    if (cont % Nprint) != 0:
+        return
+    idx = cont // Nprint - 1
+    loss_value = float(
+        intermediate_result.fun ** power)
+    lossbfgs[idx] = loss_value
+
+    # Validation error
+    _, futest = get_results(N, Xtest.to(device))
+    with torch.no_grad():
+        u_pred = output(N, X_star) \
+            .reshape(x_star.shape)
+        u_ref_t = torch.as_tensor(u_ref)
+        v1 = loss_function(u_pred, u_ref_t)
+        v2 = loss_function(
+            futest.reshape(-1,1),
+            torch.zeros_like(
+                futest.reshape(-1,1)))
+        validation_list[idx] = (v1+v2).item()
+    u_np = u_pred.detach().cpu().numpy()
+    error_list[idx] = (
+        np.linalg.norm(u_ref - u_np)
+        / (np.linalg.norm(u_np) + 1e-12))
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Section 15: Phase 2 --- Self-Scaled Broyden Training Loop}
+\label{sec:bfgs_loop}
+% ======================================================================
+
+\subsection*{Mathematical description}
+
+The second-order optimization is performed in a \textbf{batched loop}:
+
+\begin{enumerate}
+  \item Call \texttt{scipy.optimize.minimize(\ldots, maxiter=500)}.
+        This runs up to 500 BFGS iterations on the \emph{current}
+        collocation points.
+  \item \textbf{Extract and warm-start $H_k$}:
+        \begin{itemize}[nosep]
+          \item Retrieve $H_k = \texttt{result.hess\_inv}$.
+          \item Symmetrize: $H_k \leftarrow \frac{1}{2}(H_k + H_k^\top)$.
+          \item Check positive-definiteness via Cholesky decomposition.
+                If $H_k$ has lost positive-definiteness (numerical
+                accumulation of errors), reset $H_k \leftarrow I$.
+        \end{itemize}
+  \item \textbf{Resample collocation points} using RAD
+        (Eq.~\eqref{eq:rad}).  This changes the loss landscape, which is
+        why we run in batches rather than a single long call.
+  \item Repeat until the total iteration budget (10\,000) is exhausted.
+\end{enumerate}
+
+\subsubsection*{Why batch rather than one long run?}
+
+The loss function $\mathcal{L}(\bm\theta)$ depends on the particular
+choice of collocation points.  If we never resample, the network may
+overfit to those specific points  and fail to generalize.  Periodic
+resampling (especially with RAD) acts as a form of stochastic
+regularization and ensures the network learns the PDE everywhere in
+the domain, not just at fixed locations.
+
+The inverse Hessian $H_k$ is \emph{carried forward} (warm-started)
+between batches, preserving the curvature information accumulated so
+far.  However, when the collocation points change, the loss surface
+changes as well, so the Hessian approximation becomes slightly stale.
+The self-scaling factor $\tau_k$ in the Broyden update
+(Eq.\eqref{eq:ssbroyden}) helps correct for this by adaptively
+rescaling $H_k$ at each step.
+
+\subsection*{Code}
+
+\begin{lstlisting}
+bfgs_t0 = perf_counter()
+
+while cont < Nbfgs:
+    result = minimize(
+        loss_and_gradient,
+        initial_weights,
+        args=(N, X, X0, Xb, layer_dims),
+        method=method,
+        jac=True,
+        options={
+            'maxiter': Nchange,
+            'gtol': 0,
+            'hess_inv0': H0,
+            'method_bfgs': method_bfgs,
+            'initial_scale': initial_scale},
+        tol=0,
+        callback=callback)
+
+    # Warm-start: carry forward weights + Hessian
+    initial_weights = result.x
+    H0 = result.hess_inv
+    H0 = 0.5 * (H0 + H0.T)   # symmetrize
+
+    # Check positive-definiteness
+    try:
+        cholesky(H0)
+    except LinAlgError:
+        H0 = np.eye(len(initial_weights),
+                     dtype=np.float64)
+
+    # Resample with RAD
+    X  = adaptive_rad(N, Nint, rad_args)
+    X0 = initial_points(N0)
+    Xb = boundary_points(Nb)
+
+    # Monitor loss on new points
+    _, fu  = get_results(N, X)
+    u0     = uinit(X0)
+    u0pinn = output(N, X0)
+    ul     = uleft(Xb)
+    ulpinn = output(N, Xb[Xb[:,1]==x0])
+    ur     = uright(Xb)
+    urpinn = output(N, Xb[Xb[:,1]==xf])
+    loss_value = loss(fu, u0, u0pinn,
+                      ul, ulpinn, ur, urpinn)
+    initial_scale = False
+
+bfgs_time_sec = perf_counter() - bfgs_t0
+\end{lstlisting}
+
+
+% ======================================================================
+\section{Summary of the Two-Phase Training Pipeline}
+% ======================================================================
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+& \textbf{Phase 1: Adam} & \textbf{Phase 2: SSBroyden2} \\
+\midrule
+Type       & First-order     & Quasi-Newton (second-order) \\
+Iterations & 1\,000          & 10\,000 \\
+Per-step cost & $O(n)$       & $O(n^2)$ (Hessian-vector product) \\
+Convergence & Linear         & Superlinear \\
+Key idea   & Cheap gradient steps & Curvature-informed steps \\
+Scaling    & ---             & Self-scaled $\tau_k$ controls $\kappa(H_k)$ \\
+Resampling & RAD every 500   & RAD every 500 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The overall flow is:
+\[
+  \underbrace{\text{Adam (1000 iters)}}_{\text{get into a good basin}}
+  \;\longrightarrow\;
+  \underbrace{\text{SSBroyden2 (10000 iters)}}_{\text{converge to high accuracy}}
+\]
+
+The self-scaled Broyden update (Eq.~\eqref{eq:ssbroyden}) with the
+$\tau_k$ scaling (Eq.~\eqref{eq:tauk}) is what distinguishes this
+implementation from standard BFGS and is the core contribution of the
+paper.
+
+% ======================================================================
+\appendix
+\section{Notation Reference}
+% ======================================================================
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}cl@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+$u(t,x)$          & Solution of Burgers' equation \\
+$\hat{u}(t,x;\bm\theta)$ & Neural network approximation \\
+$\bm\theta$        & All trainable parameters (flat vector, $\in\mathbb{R}^{1341}$) \\
+$\nu$              & Viscosity ($0.01/\pi$) \\
+$f(t,x;\bm\theta)$ & PDE residual: $u_t + u\,u_x - \nu\,u_{xx}$ \\
+$\mathcal{L}$      & Total loss (PDE + IC + BC) \\
+$\lambda_0, \lambda_B$ & Loss weights for IC and BC (both $= 5$) \\
+$H_k$              & Inverse Hessian approximation at iteration $k$ \\
+$\tau_k$           & Self-scaling factor \\
+$\theta_k$         & Broyden family interpolation parameter \\
+$\bm{s}_k, \bm{y}_k$ & Step and gradient difference vectors \\
+$\rho_k$           & $1 / (\bm{y}_k^\top \bm{s}_k)$ \\
+$e_{\mathrm{rel}}$ & Relative $\ell^2$ error \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

@@ -1,0 +1,23 @@
+\contentsline {section}{\numberline {1}Overview}{2}{section.1}%
+\contentsline {section}{\numberline {2}Cell 1: Imports and Configuration Path}{2}{section.2}%
+\contentsline {section}{\numberline {3}Cell 2: Load Configuration and Set All Parameters}{4}{section.3}%
+\contentsline {section}{\numberline {4}Cell 3: Neural Network Definition}{7}{section.4}%
+\contentsline {section}{\numberline {5}Cell 4: Initial Condition and Sampling Functions}{10}{section.5}%
+\contentsline {section}{\numberline {6}Cell 5: PDE Residual --- Fourth-Order Autograd}{13}{section.6}%
+\contentsline {paragraph}{Biharmonic operator.}{13}{equation.6.6}%
+\contentsline {paragraph}{Laplacian.}{13}{equation.6.7}%
+\contentsline {paragraph}{Nonlinear term $\nabla ^{2}(U^3)$.}{13}{equation.6.8}%
+\contentsline {section}{\numberline {7}Cell 6: Loss Function, Gradient Computation, and Utilities}{17}{section.7}%
+\contentsline {section}{\numberline {8}Cell 7: Phase 1 --- Adam Training (First-Order Warmup)}{20}{section.8}%
+\contentsline {section}{\numberline {9}Cell 8: Phase 2 --- Quasi-Newton Training (BFGS / L-BFGS-B)}{22}{section.9}%
+\contentsline {section}{\numberline {10}Cell 9: Visualisation and Results}{25}{section.10}%
+\contentsline {section}{\numberline {11}Summary of the Training Pipeline}{29}{section.11}%
+\contentsline {section}{\numberline {12}Experiment Suite}{29}{section.12}%
+\contentsline {subsection}{\numberline {12.1}Group A: Optimizer Type}{29}{subsection.12.1}%
+\contentsline {subsection}{\numberline {12.2}Group B: Adam Warmup Duration}{29}{subsection.12.2}%
+\contentsline {subsection}{\numberline {12.3}Group C: Power Transform}{30}{subsection.12.3}%
+\contentsline {subsection}{\numberline {12.4}Group D: Hessian Initialisation}{30}{subsection.12.4}%
+\contentsline {subsection}{\numberline {12.5}Group E: Adam Learning Rate}{30}{subsection.12.5}%
+\contentsline {subsection}{\numberline {12.6}Group F: BFGS Batch Size (Resampling Frequency)}{30}{subsection.12.6}%
+\contentsline {section}{\numberline {13}Key Differences from the Burgers Notebook}{30}{section.13}%
+\contentsline {section}{\numberline {A}Notation Reference}{31}{appendix.A}%

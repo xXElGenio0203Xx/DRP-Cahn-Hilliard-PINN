@@ -1,0 +1,18 @@
+\contentsline {section}{\numberline {1}Overview}{2}{section.1}%
+\contentsline {section}{\numberline {2}Section 1: Hyperparameters}{2}{section.2}%
+\contentsline {section}{\numberline {3}Section 2: Neural Network Definition}{3}{section.3}%
+\contentsline {section}{\numberline {4}Section 3: Data Sampling Functions}{4}{section.4}%
+\contentsline {section}{\numberline {5}Section 4: PDE Conditions (IC and BC)}{6}{section.5}%
+\contentsline {section}{\numberline {6}Section 5: Forward Pass and PDE Residual}{6}{section.6}%
+\contentsline {section}{\numberline {7}Section 6: Loss Function}{7}{section.7}%
+\contentsline {section}{\numberline {8}Section 7: Gradient Computation and Adam Training Step}{8}{section.8}%
+\contentsline {section}{\numberline {9}Section 8: Generate Initial Training Data}{9}{section.9}%
+\contentsline {section}{\numberline {10}Section 9: Load Reference Solution}{9}{section.10}%
+\contentsline {section}{\numberline {11}Section 10: Phase 1 --- Adam Training}{10}{section.11}%
+\contentsline {section}{\numberline {12}Section 11: Nested Tensor Utility}{11}{section.12}%
+\contentsline {section}{\numberline {13}Section 12: SciPy-Compatible Loss + Gradient Wrapper}{12}{section.13}%
+\contentsline {section}{\numberline {14}Section 13: Phase 2 Setup --- Self-Scaled BFGS}{13}{section.14}%
+\contentsline {section}{\numberline {15}Section 14: BFGS Optimizer Configuration}{14}{section.15}%
+\contentsline {section}{\numberline {16}Section 15: Phase 2 --- Self-Scaled Broyden Training Loop}{15}{section.16}%
+\contentsline {section}{\numberline {17}Summary of the Two-Phase Training Pipeline}{17}{section.17}%
+\contentsline {section}{\numberline {A}Notation Reference}{18}{appendix.A}%
