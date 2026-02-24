@@ -76,11 +76,11 @@ boundary_conditions:
 # ---------------------------------------------------------------------------
 # Neural network architecture
 # Input: (t, x, y) = 3 features → Output: U(t,x,y) = 1 feature
-# Using 4 hidden layers with 40 neurons each (tanh activation)
-# → 5,121 trainable parameters, Hessian ≈ 200 MB
+# Using 4 hidden layers with 20 neurons each (tanh activation)
+# → 1,361 trainable parameters, Hessian ≈ 15 MB
 # ---------------------------------------------------------------------------
 network:
-  layer_dims: [3, 40, 40, 40, 40, 1]
+  layer_dims: [3, 20, 20, 20, 20, 1]
   activation: "tanh"        # Options: tanh, relu, gelu, silu, sigmoid
   output_scaling: 1.0       # Multiply network output by this constant
   final_layer_init: "variance_scaling"  # Options: variance_scaling, xavier, default

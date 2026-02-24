@@ -20,7 +20,7 @@
 #SBATCH --job-name=ch_pinn
 #SBATCH --array=0-16
 #SBATCH --time=08:00:00
-#SBATCH --mem=8G
+#SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #SBATCH --output=slurm_logs/ch_pinn_%A_%a.out
 #SBATCH --error=slurm_logs/ch_pinn_%A_%a.err

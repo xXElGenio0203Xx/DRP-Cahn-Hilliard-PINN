@@ -264,7 +264,8 @@ def eval_ic(X_t0):
     x_np = X_t0[:, 1].detach().cpu().numpy()
     y_np = X_t0[:, 2].detach().cpu().numpy()
     vals = ic_interp(np.column_stack([y_np, x_np]))
-    return torch.tensor(vals, dtype=torch.get_default_dtype()).reshape(-1, 1)
+    return torch.tensor(vals, dtype=torch.get_default_dtype(),
+                        device=DEVICE).reshape(-1, 1)
 
 
 def sample_interior(n):
@@ -272,7 +273,7 @@ def sample_interior(n):
     x = x_min + Lx * np.random.rand(n)
     y = y_min + Ly * np.random.rand(n)
     return torch.tensor(np.column_stack([t, x, y]),
-                        dtype=torch.get_default_dtype())
+                        dtype=torch.get_default_dtype(), device=DEVICE)
 
 
 def sample_initial(n):
@@ -280,7 +281,7 @@ def sample_initial(n):
     x = x_min + Lx * np.random.rand(n)
     y = y_min + Ly * np.random.rand(n)
     return torch.tensor(np.column_stack([t, x, y]),
-                        dtype=torch.get_default_dtype())
+                        dtype=torch.get_default_dtype(), device=DEVICE)
 
 
 def sample_boundary_periodic(n):
@@ -288,15 +289,15 @@ def sample_boundary_periodic(n):
     t_x = t_min + (t_max - t_min) * np.random.rand(n2)
     y_x = y_min + Ly * np.random.rand(n2)
     X_xlo = torch.tensor(np.column_stack([t_x, np.full(n2, x_min), y_x]),
-                          dtype=torch.get_default_dtype())
+                          dtype=torch.get_default_dtype(), device=DEVICE)
     X_xhi = torch.tensor(np.column_stack([t_x, np.full(n2, x_max), y_x]),
-                          dtype=torch.get_default_dtype())
+                          dtype=torch.get_default_dtype(), device=DEVICE)
     t_y = t_min + (t_max - t_min) * np.random.rand(n2)
     x_y = x_min + Lx * np.random.rand(n2)
     X_ylo = torch.tensor(np.column_stack([t_y, x_y, np.full(n2, y_min)]),
-                          dtype=torch.get_default_dtype())
+                          dtype=torch.get_default_dtype(), device=DEVICE)
     X_yhi = torch.tensor(np.column_stack([t_y, x_y, np.full(n2, y_max)]),
-                          dtype=torch.get_default_dtype())
+                          dtype=torch.get_default_dtype(), device=DEVICE)
     return X_xlo, X_xhi, X_ylo, X_yhi
 
 
@@ -377,7 +378,7 @@ def compute_loss(net, X_int, X_ic, bc_data):
     L_pde = mse(residual, torch.zeros_like(residual))
 
     U_ic_pred = forward_pass(net, X_ic)
-    U_ic_true = eval_ic(X_ic).to(U_ic_pred.device)
+    U_ic_true = eval_ic(X_ic)
     L_ic = mse(U_ic_pred, U_ic_true)
 
     if bc_deriv_order >= 1:
@@ -664,19 +665,18 @@ plt.close(fig)
 # IC comparison
 fig, axes = plt.subplots(1, 2, figsize=(9, 3.5))
 X_ic_plot = torch.tensor(
-    np.column_stack([np.zeros(nx_plot * ny_plot), xx.ravel(), yy.ravel()]),
-    dtype=torch.get_default_dtype(),
+    np.column_stack([np.full(nx_plot * ny_plot, t_min), xx.ravel(), yy.ravel()]),
+    dtype=torch.get_default_dtype(), device=DEVICE,
 )
-U_ic_true_plot = eval_ic(X_ic_plot).numpy().reshape(ny_plot, nx_plot)
+U_ic_true_plot = eval_ic(X_ic_plot).cpu().numpy().reshape(ny_plot, nx_plot)
 im0 = axes[0].pcolormesh(xs_plot, ys_plot, U_ic_true_plot, cmap="RdBu_r", shading="auto")
 axes[0].set_title("True IC  U₀(x,y)")
 axes[0].set_aspect("equal")
 fig.colorbar(im0, ax=axes[0], fraction=0.046)
 
 net.eval()
-X_ic_dev = X_ic_plot.to(DEVICE)
 with torch.no_grad():
-    U_ic_pred_plot = forward_pass(net, X_ic_dev).cpu().numpy().reshape(ny_plot, nx_plot)
+    U_ic_pred_plot = forward_pass(net, X_ic_plot).cpu().numpy().reshape(ny_plot, nx_plot)
 im1 = axes[1].pcolormesh(xs_plot, ys_plot, U_ic_pred_plot, cmap="RdBu_r", shading="auto")
 axes[1].set_title("PINN at t = 0")
 axes[1].set_aspect("equal")
@@ -685,6 +685,48 @@ fig.suptitle("Initial Condition Comparison", fontsize=14, y=1.02)
 fig.tight_layout()
 fig.savefig(os.path.join(RESULTS_DIR, "ic_comparison.png"), dpi=150, bbox_inches="tight")
 plt.close(fig)
+
+# Mass conservation diagnostic
+# CH with periodic BCs conserves spatial average: d/dt ∫_Ω U dx dy = 0
+n_mass_times = 21
+mass_times = np.linspace(t_min, t_max, n_mass_times)
+mean_U = np.zeros(n_mass_times)
+
+net.eval()
+with torch.no_grad():
+    for i, t_val in enumerate(mass_times):
+        tt = np.full(nx_plot * ny_plot, t_val)
+        X_mass = torch.tensor(
+            np.column_stack([tt, xx.ravel(), yy.ravel()]),
+            dtype=torch.get_default_dtype(), device=DEVICE,
+        )
+        U_mass = forward_pass(net, X_mass).cpu().numpy().ravel()
+        mean_U[i] = U_mass.mean()
+net.train()
+
+mass_drift = mean_U.max() - mean_U.min()
+print(f"\nMass conservation diagnostic (<U> over domain at {n_mass_times} times):")
+print(f"  <U>(t={t_min}) = {mean_U[0]:+.6f}")
+print(f"  <U>(t={t_max}) = {mean_U[-1]:+.6f}")
+print(f"  max drift       = {mass_drift:.2e}")
+
+fig, ax = plt.subplots(figsize=(7, 3))
+ax.plot(mass_times, mean_U, "o-", markersize=4, linewidth=1.5)
+ax.axhline(mean_U[0], color="gray", ls="--", lw=0.8, label=f"<U>(t0) = {mean_U[0]:.4f}")
+ax.set_xlabel("t")
+ax.set_ylabel("<U>(t)")
+ax.set_title(f"Mass Conservation — drift = {mass_drift:.2e}")
+ax.legend()
+fig.tight_layout()
+fig.savefig(os.path.join(RESULTS_DIR, "mass_conservation.png"), dpi=150)
+plt.close(fig)
+
+# Add mass data to summary
+summary["mass_mean_t0"] = round(float(mean_U[0]), 6)
+summary["mass_mean_tmax"] = round(float(mean_U[-1]), 6)
+summary["mass_drift"] = round(float(mass_drift), 8)
+with open(os.path.join(RESULTS_DIR, "summary.json"), "w") as f:
+    json.dump(summary, f, indent=2)
 
 print(f"\nPlots saved to {RESULTS_DIR}/")
 
