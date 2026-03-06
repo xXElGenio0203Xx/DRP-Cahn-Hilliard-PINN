@@ -14,11 +14,25 @@ __pycache__/
 .vscode/
 .idea/
 
-# SLURM logs (keep locally, not in repo)
-slurm_logs/*.out
+# SLURM logs
+oscar/slurm_logs/
 
-# Results (large, keep locally)
+# Results & predictions (large, regenerable)
 results*/
+predictions/
 
-# Data files
+# Data files (large binaries)
 *.mat
+reference_solution.npz
+
+# LaTeX build artifacts
+tex_sources/*.aux
+tex_sources/*.log
+tex_sources/*.out
+tex_sources/*.toc
+tex_sources/figures/
+
+# All PDFs (reports live in pdfs/ locally, but are not tracked)
+*.pdf
+pdfs/
+tex_sources/*.pdf

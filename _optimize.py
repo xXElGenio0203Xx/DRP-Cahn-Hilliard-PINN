@@ -1552,6 +1552,20 @@ def _minimize_bfgs(fun, x0, args=(), jac=None, callback=None,
             if disp:
                 msg = "Divide-by-zero encountered: rhok assumed large"
                 _print_success_message_or_warn(True, msg)
+        # --- DRP MODIFICATION START (negative curvature guard) ---------------
+        # Original code only checked rhok_inv == 0.  We add a guard for
+        # rhok_inv < 0 (violated curvature condition y^T s < 0), which can
+        # happen when the line search accepts a step that does not satisfy
+        # the strong Wolfe conditions exactly (e.g. numerical noise).
+        # Setting rhok = 1000.0 effectively skips the Hessian update,
+        # making the iteration equivalent to a steepest-descent step.
+        # To revert: delete this elif block and keep only the == 0 / else.
+        elif rhok_inv < 0.:
+            rhok = 1000.0
+            if disp:
+                msg = "Negative curvature detected: rhok assumed large"
+                _print_success_message_or_warn(True, msg)
+        # --- DRP MODIFICATION END --------------------------------------------
         else:
             rhok = 1. / rhok_inv
         
@@ -1601,54 +1615,142 @@ def _minimize_bfgs(fun, x0, args=(), jac=None, callback=None,
             hk = ykHkyk*rhok
             Hk = Hk - rhok*(Hkyk[:, np.newaxis] * sk[np.newaxis, :] + sk[:, np.newaxis] * Hkyk[np.newaxis, :]) + rhok*(1+hk)*sk[:, np.newaxis] *sk[np.newaxis, :]
 
+        # --- DRP MODIFICATION START (SSBroyden1 rewrite) --------------------
+        # ORIGINAL CODE (from Kiyani et al. _optimize.py) was:
+        #
+        #   elif method_bfgs == "SSBroyden1":
+        #       Hkyk = np.matmul(Hk,yk)
+        #       ykHkyk = np.dot(yk,Hkyk)
+        #       hk = ykHkyk*rhok
+        #       bk = -alpha_k*rhok*np.dot(sk,gfkp1-yk)
+        #       ak = bk*hk -1
+        #       rhokm = min(1,hk*(1-np.sqrt(np.abs(ak)/(1+ak))))
+        #       thetakm = (rhokm-1)/ak
+        #       thetakp = 1/rhokm
+        #       thetakSR1 = 1/(1-bk)
+        #       if bk > 1:
+        #           thetak = max(thetakm,thetakSR1)
+        #       else:
+        #           thetak = min(thetakp,thetakSR1)
+        #       if initial_scale and np.allclose(Hk,np.eye(N)):
+        #           tauk = hk/(1+ak*thetak)
+        #       else:
+        #           rhokk = min(1,1/bk)
+        #           sigmak = 1 + thetak*ak
+        #           sigmaknm1 = np.abs(sigmak)**(1./(1-N))
+        #           if thetak<=0:
+        #               tauk = min(rhokk*sigmaknm1,sigmak)
+        #           else:
+        #               tauk = rhokk*min(sigmaknm1,1/thetak)
+        #       vk = sk*rhok - Hkyk/ykHkyk
+        #       phik = (1-thetak)/(1+ak*thetak)
+        #       Hk = (Hk - Hkyk[:,np.newaxis]*Hkyk[np.newaxis,:]/ykHkyk +\
+        #             phik*ykHkyk*vk[:,np.newaxis]*vk[np.newaxis,:])/tauk +
+        #             sk[:,np.newaxis]*sk[np.newaxis,:]*rhok
+        #       print(ak,thetak,tauk,phik)
+        #
+        # PROBLEMS FOUND:
+        #   1. print(ak,thetak,tauk,phik) executed EVERY iteration — floods
+        #      stdout and slows training on Oscar.
+        #   2. No guards against division-by-zero / NaN / Inf:
+        #      - 1/(1-bk) blows up when bk ≈ 1  (thetakSR1 singularity)
+        #      - (rhokm-1)/ak blows up when ak ≈ 0  (thetakm singularity)
+        #      - 1/rhokm blows up when rhokm ≈ 0  (thetakp singularity)
+        #      - sqrt(|ak|/(1+ak)) is NaN when 1+ak < 0
+        #      - 1/ykHkyk blows up when ykHkyk ≈ 0
+        #   3. Once any intermediate is NaN/Inf, the Hessian Hk is corrupted
+        #      and all subsequent iterations diverge.
+        #
+        # FIX: Wrapped every division in an epsilon guard.  Added _fallback
+        # flag that triggers a standard BFGS update whenever numerics are
+        # unreliable.  Removed the debug print statement.
+        #
+        # To revert: replace everything between these DRP markers with the
+        # original code block shown above.
+        # ----------------------------------------------------------------
         elif method_bfgs == "SSBroyden1":
-            print(f"Invoked: {method_bfgs} approach!")
-            if initial_scale and np.allclose(Hk,np.eye(N)):
-                Hkyk = np.matmul(Hk,yk)
-                ykHkyk = np.dot(yk,Hkyk)
-                hk = ykHkyk*rhok
-                bk = -alpha_k*rhok*np.dot(sk,gfkp1-yk)
-                ak = hk*bk -1
-                rhokm = min(1,hk*(1-np.sqrt(np.abs(ak)/(1+ak))))
-                thetakm = (rhokm-1)/ak
-                thetakp = 1/rhokm
-                thetakSR1 = 1/(1-bk)
-                if bk==1:
-                    thetak = thetakm
-                elif bk > 1:
-                    thetak = max(thetakm,thetakSR1)
-                else:
-                    thetak = min(thetakp,thetakSR1)
+            _EPS_DIV = 1e-30   # guard against division by zero
+            _fallback = False  # if True, fall back to standard BFGS update
+            Hkyk = np.matmul(Hk, yk)
+            ykHkyk = np.dot(yk, Hkyk)
+            hk = ykHkyk * rhok
+            bk = -alpha_k * rhok * np.dot(sk, gfkp1 - yk)
+            ak = bk * hk - 1
 
-                tauk = hk/(1+ak*thetak)
-               
+            # Guard: need 1+ak > 0 for sqrt; if violated, fall back
+            if (1 + ak) <= _EPS_DIV or not np.isfinite(ak):
+                _fallback = True
             else:
-                Hkyk = np.matmul(Hk,yk)
-                ykHkyk = np.dot(yk,Hkyk)
-                hk = ykHkyk*rhok
-                bk = -alpha_k*rhok*np.dot(sk,gfkp1-yk)
-                ak = bk*hk -1
-                rhokm = min(1,hk*(1-np.sqrt(np.abs(ak)/(1+ak))))
-                thetakm = (rhokm-1)/ak
-                thetakp = 1/rhokm
-                thetakSR1 = 1/(1-bk)
-                if bk==1:
-                    thetak = thetakm
-                elif bk > 1:
-                    thetak = max(thetakm,thetakSR1)
+                ck_arg = np.abs(ak) / (1 + ak)
+                rhokm = min(1.0, hk * (1 - np.sqrt(ck_arg)))
+                # Guard: ak ≈ 0 → thetakm blows up
+                if np.abs(ak) < _EPS_DIV:
+                    _fallback = True
                 else:
-                    thetak = min(thetakp,thetakSR1)
-                rhokk = min(1,1/bk)
-                sigmak = 1 + thetak*ak
-                sigmaknm1 = np.abs(sigmak)**(1./(1-N))
-                if thetak<=0:
-                    tauk = min(rhokk*sigmaknm1,sigmak)
+                    thetakm = (rhokm - 1) / ak
+                    # Guard: rhokm ≈ 0 → thetakp blows up
+                    if np.abs(rhokm) < _EPS_DIV:
+                        thetakp = np.sign(rhokm) * 1e30
+                    else:
+                        thetakp = 1.0 / rhokm
+
+                    # Guard: bk ≈ 1 → thetakSR1 = 1/(1-bk) blows up
+                    if np.abs(1 - bk) < 1e-12:
+                        thetakSR1 = thetakm  # avoid singularity
+                    else:
+                        thetakSR1 = 1.0 / (1 - bk)
+
+                    # Case-switch theta selection (DFP direction)
+                    if bk > 1:
+                        thetak = max(thetakm, thetakSR1)
+                    else:
+                        thetak = min(thetakp, thetakSR1)
+
+            if not _fallback:
+                # Guard: check that thetak is finite
+                if not np.isfinite(thetak):
+                    _fallback = True
+
+            if not _fallback:
+                if initial_scale and np.allclose(Hk, np.eye(N)):
+                    denom_tau = 1 + ak * thetak
+                    if np.abs(denom_tau) < _EPS_DIV:
+                        _fallback = True
+                    else:
+                        tauk = hk / denom_tau
                 else:
-                    tauk = rhokk*min(sigmaknm1,1/thetak)
-            vk = sk*rhok - Hkyk/ykHkyk
-            phik = (1-thetak)/(1+ak*thetak)
-            Hk = (Hk - Hkyk[:,np.newaxis]*Hkyk[np.newaxis,:]/ykHkyk +\
-            phik*ykHkyk*vk[:,np.newaxis]*vk[np.newaxis,:])/tauk + sk[:,np.newaxis]*sk[np.newaxis,:]*rhok
+                    rhokk = min(1.0, 1.0 / bk) if bk > _EPS_DIV else 1.0
+                    sigmak = 1 + thetak * ak
+                    sigmaknm1 = np.abs(sigmak) ** (1.0 / (1 - N))
+                    if thetak <= 0:
+                        tauk = min(rhokk * sigmaknm1, sigmak)
+                    else:
+                        tauk = rhokk * min(sigmaknm1, 1.0 / max(thetak, _EPS_DIV))
+
+            if not _fallback:
+                # Guard: tauk must be positive and finite
+                if tauk <= _EPS_DIV or not np.isfinite(tauk):
+                    _fallback = True
+
+            if _fallback:
+                # Standard BFGS update as safe fallback
+                if initial_scale and np.allclose(Hk, np.eye(N)):
+                    tauk_init = rhok * np.dot(yk, yk)
+                    Hk = Hk / tauk_init
+                Hk = Hk - rhok * (Hkyk[:, np.newaxis] * sk[np.newaxis, :]
+                      + sk[:, np.newaxis] * Hkyk[np.newaxis, :]) \
+                      + rhok * (1 + hk) * sk[:, np.newaxis] * sk[np.newaxis, :]
+            else:
+                vk = sk * rhok - Hkyk / (ykHkyk + _EPS_DIV)
+                denom_phi = 1 + ak * thetak
+                if np.abs(denom_phi) < _EPS_DIV:
+                    phik = 0.0  # degenerate case → pure DFP-like
+                else:
+                    phik = (1 - thetak) / denom_phi
+                Hk = (Hk - Hkyk[:, np.newaxis] * Hkyk[np.newaxis, :] / (ykHkyk + _EPS_DIV)
+                      + phik * ykHkyk * vk[:, np.newaxis] * vk[np.newaxis, :]) / tauk \
+                      + sk[:, np.newaxis] * sk[np.newaxis, :] * rhok
+        # --- DRP MODIFICATION END (SSBroyden1 rewrite) ----------------------
 
         elif method_bfgs == "SSBroyden2":
             if initial_scale and np.allclose(Hk,np.eye(N)):

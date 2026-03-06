@@ -5,12 +5,17 @@ Cahn-Hilliard PINN — Headless Training Script
 Converted from Cahn_Hilliard_Pytorch.ipynb for batch execution on OSCAR.
 
 Usage:
-    python -u run_experiment.py configs/cahn_hilliard_canonical.yaml
-    python -u run_experiment.py configs/adam_only.yaml
+    python -u run_experiment.py configs/A5_ssbroyden2.yaml
+    python -u run_experiment.py configs/A5_ssbroyden2.yaml --seed 1
+    python -u run_experiment.py configs/D1_adam_only.yaml --seed 3
 
-The single CLI argument is the path to a YAML configuration file.
+The first positional argument is the path to a YAML configuration file.
+Use --seed N to override the random seed from the config; results are
+then placed in results_dir/seed_N/ to keep multi-seed runs separate.
+
 All results (model weights, loss curves, plots, metrics) are saved to
-the directory specified by logging.results_dir in the config.
+the directory specified by logging.results_dir in the config (optionally
+suffixed with /seed_N).
 
 Use `python -u` (unbuffered) so SLURM captures output in real time.
 """
@@ -20,6 +25,7 @@ import sys
 import math
 import json
 import yaml
+import argparse
 from time import perf_counter
 
 import numpy as np
@@ -37,14 +43,23 @@ matplotlib.use("Agg")  # non-interactive backend for OSCAR (no display)
 import matplotlib.pyplot as plt
 
 # ============================================================================
-# 0. PARSE CLI ARGUMENT
+# 0. PARSE CLI ARGUMENTS
 # ============================================================================
 
-if len(sys.argv) < 2:
-    print("Usage: python -u run_experiment.py <config.yaml>")
-    sys.exit(1)
+parser = argparse.ArgumentParser(
+    description="Cahn-Hilliard PINN — Batch Training on OSCAR"
+)
+parser.add_argument(
+    "config", help="Path to YAML configuration file"
+)
+parser.add_argument(
+    "--seed", type=int, default=None,
+    help="Override the random seed from config. Results are placed in "
+         "results_dir/seed_N/ to keep multi-seed runs separate."
+)
+args = parser.parse_args()
 
-CONFIG_PATH = sys.argv[1]
+CONFIG_PATH = args.config
 if not os.path.isfile(CONFIG_PATH):
     print(f"ERROR: Config file not found: {CONFIG_PATH}")
     sys.exit(1)
@@ -52,6 +67,8 @@ if not os.path.isfile(CONFIG_PATH):
 print(f"=" * 70)
 print(f"Cahn-Hilliard PINN — Batch Training")
 print(f"Config: {CONFIG_PATH}")
+if args.seed is not None:
+    print(f"Seed override: {args.seed}")
 print(f"=" * 70)
 
 # ============================================================================
@@ -96,6 +113,7 @@ adam_cfg = cfg["training"]["adam"]
 bfgs_cfg = cfg["training"]["bfgs"]
 
 Nepochs_ADAM   = adam_cfg["epochs"]
+adam_optimizer = adam_cfg.get("optimizer", "adam").lower()  # "adam" or "radam"
 adam_lr        = adam_cfg["lr"]
 adam_betas     = tuple(adam_cfg["betas"])
 adam_eps        = adam_cfg["eps"]
@@ -131,7 +149,15 @@ log_cfg    = cfg.get("logging", {})
 Nprint     = log_cfg.get("print_every", 100)
 RESULTS_DIR = log_cfg.get("results_dir", "results_cahn_hilliard")
 
-SEED       = cfg.get("seed", 2)
+# --- DRP MODIFICATION: --seed CLI override -----------------------------------
+# When --seed is provided, override the config's seed and place results in
+# a per-seed subdirectory (results_dir/seed_N/) for multi-seed experiments.
+if args.seed is not None:
+    SEED = args.seed
+    RESULTS_DIR = os.path.join(RESULTS_DIR, f"seed_{args.seed}")
+else:
+    SEED = cfg.get("seed", 2)
+# --- DRP MODIFICATION END ----------------------------------------------------
 dtype_str  = cfg.get("dtype", "float64")
 
 torch_dtype = torch.float64 if dtype_str == "float64" else torch.float32
@@ -447,9 +473,13 @@ adam_losses = []
 adam_t0 = perf_counter()
 
 if Nepochs_ADAM > 0:
-    optimizer = torch.optim.Adam(
+    _optim_cls = {"adam": torch.optim.Adam, "radam": torch.optim.RAdam}
+    if adam_optimizer not in _optim_cls:
+        raise ValueError(f"Unknown adam optimizer '{adam_optimizer}'; use 'adam' or 'radam'")
+    optimizer = _optim_cls[adam_optimizer](
         net.parameters(), lr=adam_lr, betas=adam_betas, eps=adam_eps
     )
+    print(f"Phase 1 optimizer: {adam_optimizer.upper()}  lr={adam_lr}")
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda step: lr_decay_rate ** (step / lr_decay_steps)
     )
