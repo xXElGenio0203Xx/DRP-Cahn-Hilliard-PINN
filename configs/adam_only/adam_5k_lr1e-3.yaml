@@ -1,0 +1,82 @@
+# ========================================================================
+# adam_5k_lr1e-3
+# ========================================================================
+#   Adam-only sweep: 5000 epochs, lr=1e-3. Burgers-matched sampling
+#   (Nint=8000, N0=500, Nb=500) and architecture.
+# ========================================================================
+
+experiment:
+  name: adam_5k_lr1e-3
+  description: 'Adam-only sweep: 5000 epochs, lr=1e-3. Burgers-matched sampling
+    and architecture.'
+equation:
+  D: 1.0
+  a2: 1.0
+  a4: 1.0
+domain:
+  x_min: 0.0
+  x_max: 128.0
+  y_min: 0.0
+  y_max: 128.0
+  t_min: 0.0
+  t_max: 20.0
+  normalize_inputs: true
+initial_condition:
+  type: uniform_random
+  low: -1.0
+  high: 1.0
+  grid_nx: 128
+  grid_ny: 128
+  smoothing_sigma: 2.0
+  seed: 42
+boundary_conditions:
+  type: periodic
+  enforcement: soft
+  derivative_order: 1
+network:
+  layer_dims:
+  - 3
+  - 20
+  - 20
+  - 20
+  - 20
+  - 1
+  activation: tanh
+  output_scaling: 1.0
+  final_layer_init: variance_scaling
+training:
+  adam:
+    epochs: 5000
+    lr: 0.001
+    betas:
+    - 0.99
+    - 0.999
+    eps: 1.0e-20
+    lr_decay_rate: 0.98
+    lr_decay_steps: 1000
+  bfgs:
+    epochs: 0
+    batch_size: 500
+    method: BFGS
+    variant: none
+    initial_scale: false
+    power: 1.0
+sampling:
+  n_interior: 8000
+  n_initial: 500
+  n_boundary: 500
+  resample_every: 500
+  rad:
+    enabled: true
+    k1: 1.0
+    k2: 1.0
+    n_candidates: 50000
+loss_weights:
+  pde: 1.0
+  ic: 5.0
+  bc: 5.0
+logging:
+  print_every: 500
+  results_dir: results/adam_only/adam_5k_lr1e-3
+seed: 2
+dtype: float64
