@@ -1,0 +1,15 @@
+{
+  "experiment": "adam_5k_lr5e-3",
+  "optimizer": "none",
+  "adam_epochs": 5000,
+  "bfgs_iters": 0,
+  "adam_time_s": 1525.57,
+  "bfgs_time_s": 0.0,
+  "total_time_s": 1525.57,
+  "final_adam_loss": 0.026272622923220114,
+  "final_bfgs_loss": null,
+  "n_params": 1361,
+  "mass_mean_t0": 0.000694,
+  "mass_mean_tmax": -0.022496,
+  "mass_drift": 0.02319021
+}

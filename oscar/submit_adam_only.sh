@@ -19,14 +19,15 @@
 #   - 5K  epochs:  ~50 min
 #   - 10K epochs:  ~1.5 hours
 #   - 51K epochs:  ~7 hours
-#   No Hessian storage needed (Adam-only), so memory is light.
+#   16GB memory needed: 8 autograd calls × 50K RAD candidate points × float64
+#   creates a large computation graph that peaks above 4GB.
 #
 # =============================================================================
 
 #SBATCH --job-name=ch_adam
 #SBATCH --array=0-35
 #SBATCH --time=12:00:00
-#SBATCH --mem=4G
+#SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #SBATCH --partition=batch
 #SBATCH --output=slurm_logs/adam_%A_%a.out
@@ -35,14 +36,12 @@
 # ---------------------------------------------------------------------------
 # Environment setup
 # ---------------------------------------------------------------------------
-module load python/3.11.0
-module load gcc/12.3
 
 # Activate the project virtual environment
-source /oscar/home/emaciaso/DRP/.venv/bin/activate
+source /oscar/home/emaciaso/pinn_env/bin/activate
 
 # Change to the project directory
-cd /oscar/home/emaciaso/DRP/Optimizing_the_Optimizer_PINNs
+cd /oscar/home/emaciaso/DRP-Cahn-Hilliard-PINN
 
 # Ensure output directories exist
 mkdir -p slurm_logs
@@ -107,9 +106,12 @@ echo "========================================================================"
 # Run the experiment
 # ---------------------------------------------------------------------------
 python -u run_experiment.py "$CONFIG_FILE" --seed "$SEED"
+RET=$?
 
 echo ""
 echo "========================================================================"
 echo "Job finished at $(date)"
-echo "Exit code: $?"
+echo "Exit code: $RET"
 echo "========================================================================"
+
+exit $RET

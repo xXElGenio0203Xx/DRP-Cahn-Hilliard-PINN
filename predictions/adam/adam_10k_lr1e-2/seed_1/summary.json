@@ -1,0 +1,15 @@
+{
+  "experiment": "adam_10k_lr1e-2",
+  "optimizer": "none",
+  "adam_epochs": 10000,
+  "bfgs_iters": 0,
+  "adam_time_s": 3193.19,
+  "bfgs_time_s": 0.0,
+  "total_time_s": 3193.19,
+  "final_adam_loss": 0.0047196779434687105,
+  "final_bfgs_loss": null,
+  "n_params": 1361,
+  "mass_mean_t0": -0.001171,
+  "mass_mean_tmax": -0.002637,
+  "mass_drift": 0.00232842
+}

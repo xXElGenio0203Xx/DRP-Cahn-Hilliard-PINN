@@ -19,7 +19,8 @@ oscar/slurm_logs/
 
 # Results & predictions (large, regenerable)
 results*/
-predictions/
+predictions/*
+!predictions/adam/
 
 # Data files (large binaries)
 *.mat
