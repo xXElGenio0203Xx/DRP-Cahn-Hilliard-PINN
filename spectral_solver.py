@@ -6,7 +6,7 @@ Pseudo-Spectral Reference Solver for the Cahn-Hilliard Equation
 Solves:
     ∂U/∂t = D · ∇²(∇²U + a₂·U + a₄·U³)
 
-on a 128×128 periodic domain using FFT + semi-implicit time-stepping.
+on a periodic domain (default 128×128) using FFT + semi-implicit time-stepping.
 
 The initial condition and domain are matched **exactly** to the PINN training
 config (cahn_hilliard_canonical.yaml):
@@ -166,6 +166,10 @@ def solve_cahn_hilliard(
     seed=42,
     sigma=2.0,
     verbose=True,
+    nx=None,
+    ny=None,
+    lx=None,
+    ly=None,
 ):
     """
     Solve Cahn-Hilliard and return solution snapshots.
@@ -184,23 +188,34 @@ def solve_cahn_hilliard(
         IC Gaussian smoothing σ.
     verbose : bool
         Print progress.
+    nx, ny : int or None
+        Grid resolution (defaults to module-level NX, NY).
+    lx, ly : float or None
+        Domain size (defaults to module-level LX, LY).
 
     Returns
     -------
     t_save : (n_save,) array of saved times
-    xs, ys : (NX,), (NY,) grid-centre coordinate arrays
-    U_save : (n_save, NY, NX) array of solution snapshots
+    xs, ys : (nx,), (ny,) grid-centre coordinate arrays
+    U_save : (n_save, ny, nx) array of solution snapshots
     """
+    nx = nx or NX
+    ny = ny or NY
+    lx = lx or LX
+    ly = ly or LY
+    dx = lx / nx
+    dy = ly / ny
+
     # Grid coordinates (cell-centred, matching PINN's interpolator)
-    xs = np.linspace(0.5 * DX, LX - 0.5 * DX, NX)
-    ys = np.linspace(0.5 * DY, LY - 0.5 * DY, NY)
+    xs = np.linspace(0.5 * dx, lx - 0.5 * dx, nx)
+    ys = np.linspace(0.5 * dy, ly - 0.5 * dy, ny)
 
     # Initial condition
-    U = generate_ic(seed=seed, nx=NX, ny=NY, sigma=sigma)
+    U = generate_ic(seed=seed, nx=nx, ny=ny, sigma=sigma)
     U_hat = np.fft.fft2(U)
 
     # Wavenumbers
-    _, _, K2, K4 = build_wavenumbers(NX, NY, LX, LY)
+    _, _, K2, K4 = build_wavenumbers(nx, ny, lx, ly)
 
     # Linear operator eigenvalues:  L(k) = -D*(K⁴ + a₂*K²)
     L = -D * (K4 + A2 * K2)
@@ -212,7 +227,7 @@ def solve_cahn_hilliard(
     # Time-stepping
     n_steps = int(np.ceil((T_MAX - T_MIN) / dt))
     t_save = np.linspace(T_MIN, T_MAX, n_save)
-    U_save = np.zeros((n_save, NY, NX))
+    U_save = np.zeros((n_save, ny, nx))
     U_save[0] = U.copy()
     save_idx = 1
 
@@ -262,6 +277,14 @@ def main():
                         help="IC random seed")
     parser.add_argument("--sigma", type=float, default=2.0,
                         help="IC Gaussian smoothing σ")
+    parser.add_argument("--nx", type=int, default=NX,
+                        help=f"Grid points in x (default: {NX})")
+    parser.add_argument("--ny", type=int, default=NY,
+                        help=f"Grid points in y (default: {NY})")
+    parser.add_argument("--lx", type=float, default=LX,
+                        help=f"Domain length in x (default: {LX})")
+    parser.add_argument("--ly", type=float, default=LY,
+                        help=f"Domain length in y (default: {LY})")
     parser.add_argument("--output", type=str, default="reference_solution.npz",
                         help="Output file path")
     args = parser.parse_args()
@@ -269,7 +292,7 @@ def main():
     print("=" * 60)
     print("Cahn-Hilliard Spectral Solver")
     print(f"  Method: {args.method}   dt={args.dt}")
-    print(f"  Domain: {NX}×{NY}, L={LX}×{LY}")
+    print(f"  Domain: {args.nx}×{args.ny}, L={args.lx}×{args.ly}")
     print(f"  Time:   [{T_MIN}, {T_MAX}]")
     print(f"  IC:     seed={args.seed}, σ={args.sigma}")
     print(f"  Saving {args.n_save} snapshots → {args.output}")
@@ -281,6 +304,10 @@ def main():
         n_save=args.n_save,
         seed=args.seed,
         sigma=args.sigma,
+        nx=args.nx,
+        ny=args.ny,
+        lx=args.lx,
+        ly=args.ly,
     )
 
     np.savez_compressed(

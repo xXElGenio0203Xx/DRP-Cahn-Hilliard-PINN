@@ -755,6 +755,120 @@ plt.close(fig)
 summary["mass_mean_t0"] = round(float(mean_U[0]), 6)
 summary["mass_mean_tmax"] = round(float(mean_U[-1]), 6)
 summary["mass_drift"] = round(float(mass_drift), 8)
+
+# ============================================================================
+# 10. COMPARISON SNAPSHOTS  (spectral reference vs PINN)
+# ============================================================================
+ref_file = log_cfg.get("reference_solution", None)
+if ref_file and os.path.isfile(ref_file):
+    print(f"\nLoading reference solution from {ref_file} ...")
+    ref_data = np.load(ref_file)
+    t_ref = ref_data["t"]        # (n_save,)
+    x_ref = ref_data["x"]        # (nx_ref,)
+    y_ref = ref_data["y"]        # (ny_ref,)
+    U_ref = ref_data["U"]        # (n_save, ny_ref, nx_ref)
+
+    # Use the same snap_times and plot grid as the PINN snapshot section
+    # snap_times, xs_plot, ys_plot, xx, yy, nx_plot, ny_plot already defined
+
+    # For each snapshot time, find the nearest reference time index
+    ref_snap_idx = [int(np.argmin(np.abs(t_ref - st))) for st in snap_times]
+
+    # Interpolate reference to the PINN evaluation grid (xs_plot, ys_plot)
+    from scipy.interpolate import RegularGridInterpolator
+    ref_on_grid = np.zeros((n_snap, ny_plot, nx_plot))
+    for i, ri in enumerate(ref_snap_idx):
+        interp = RegularGridInterpolator(
+            (y_ref, x_ref), U_ref[ri], method="linear",
+            bounds_error=False, fill_value=None,
+        )
+        pts = np.column_stack([yy.ravel(), xx.ravel()])
+        ref_on_grid[i] = interp(pts).reshape(ny_plot, nx_plot)
+
+    # PINN predictions (reuse from snapshot section or recompute)
+    pinn_snaps = np.zeros((n_snap, ny_plot, nx_plot))
+    net.eval()
+    with torch.no_grad():
+        for i, t_val in enumerate(snap_times):
+            tt = np.full_like(xx, t_val)
+            X_cmp = torch.tensor(
+                np.column_stack([tt.ravel(), xx.ravel(), yy.ravel()]),
+                dtype=torch.get_default_dtype(), device=DEVICE,
+            )
+            pinn_snaps[i] = forward_pass(net, X_cmp).cpu().numpy().reshape(ny_plot, nx_plot)
+    net.train()
+
+    # Absolute error
+    abs_err = np.abs(ref_on_grid - pinn_snaps)
+
+    # Compute per-snapshot relative L2 error
+    l2_per_t = []
+    for i in range(n_snap):
+        denom = np.linalg.norm(ref_on_grid[i])
+        if denom > 1e-15:
+            l2_per_t.append(float(np.linalg.norm(abs_err[i]) / denom))
+        else:
+            l2_per_t.append(float("nan"))
+    l2_overall = float(
+        np.linalg.norm(ref_on_grid - pinn_snaps)
+        / max(np.linalg.norm(ref_on_grid), 1e-15)
+    )
+
+    print(f"  Per-snapshot relative L2 errors:")
+    for i, (tv, e) in enumerate(zip(snap_times, l2_per_t)):
+        print(f"    t={tv:.1f}  L2_rel={e:.4e}")
+    print(f"  Overall relative L2 = {l2_overall:.4e}")
+
+    summary["l2_error_per_t"] = {f"t_{snap_times[i]:.1f}": round(e, 8)
+                                  for i, e in enumerate(l2_per_t)}
+    summary["l2_error_overall"] = round(l2_overall, 8)
+
+    # 3-row figure: reference / PINN / absolute error
+    vmin = min(ref_on_grid.min(), pinn_snaps.min())
+    vmax = max(ref_on_grid.max(), pinn_snaps.max())
+
+    fig, axes = plt.subplots(3, n_snap, figsize=(4 * n_snap, 10))
+    row_labels = ["Spectral Reference", "PINN Prediction", "Absolute Error"]
+    for i in range(n_snap):
+        # Row 0: reference
+        im0 = axes[0, i].pcolormesh(xs_plot, ys_plot, ref_on_grid[i],
+                                     cmap="RdBu_r", shading="auto",
+                                     vmin=vmin, vmax=vmax)
+        axes[0, i].set_title(f"t = {snap_times[i]:.1f}")
+        axes[0, i].set_aspect("equal")
+
+        # Row 1: PINN
+        im1 = axes[1, i].pcolormesh(xs_plot, ys_plot, pinn_snaps[i],
+                                     cmap="RdBu_r", shading="auto",
+                                     vmin=vmin, vmax=vmax)
+        axes[1, i].set_aspect("equal")
+
+        # Row 2: error
+        im2 = axes[2, i].pcolormesh(xs_plot, ys_plot, abs_err[i],
+                                     cmap="hot", shading="auto")
+        axes[2, i].set_aspect("equal")
+        axes[2, i].set_xlabel(f"L2_rel={l2_per_t[i]:.2e}")
+
+    for row, label in enumerate(row_labels):
+        axes[row, 0].set_ylabel(label)
+
+    fig.colorbar(im0, ax=axes[0, :].tolist(), fraction=0.02, pad=0.02)
+    fig.colorbar(im1, ax=axes[1, :].tolist(), fraction=0.02, pad=0.02)
+    fig.colorbar(im2, ax=axes[2, :].tolist(), fraction=0.02, pad=0.02)
+
+    fig.suptitle(
+        f"Comparison — {cfg['experiment']['name']}  "
+        f"(overall L2_rel = {l2_overall:.2e})",
+        fontsize=14, y=1.01,
+    )
+    fig.tight_layout()
+    fig.savefig(os.path.join(RESULTS_DIR, "comparison_snapshots.png"),
+                dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved comparison_snapshots.png")
+elif ref_file:
+    print(f"\nWARNING: reference_solution '{ref_file}' not found — skipping comparison.")
+
 with open(os.path.join(RESULTS_DIR, "summary.json"), "w") as f:
     json.dump(summary, f, indent=2)
 
