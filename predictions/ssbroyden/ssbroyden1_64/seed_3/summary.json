@@ -1,0 +1,23 @@
+{
+  "experiment": "ssbroyden1_64",
+  "optimizer": "SSBroyden1",
+  "adam_epochs": 1000,
+  "bfgs_iters": 50000,
+  "adam_time_s": 388.58,
+  "bfgs_time_s": 25484.83,
+  "total_time_s": 25873.41,
+  "final_adam_loss": 0.029720654714296472,
+  "final_bfgs_loss": 1.1851489301030071e-05,
+  "n_params": 1361,
+  "mass_mean_t0": -0.00342,
+  "mass_mean_tmax": 0.001294,
+  "mass_drift": 0.00572538,
+  "l2_error_per_t": {
+    "t_0.0": 0.13752714,
+    "t_5.0": 0.44307957,
+    "t_10.0": 0.44380048,
+    "t_15.0": 0.59445615,
+    "t_20.0": 0.7542039
+  },
+  "l2_error_overall": 0.34093693
+}

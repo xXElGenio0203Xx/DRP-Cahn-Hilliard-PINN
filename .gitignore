@@ -21,6 +21,7 @@ oscar/slurm_logs/
 results*/
 predictions/*
 !predictions/adam/
+!predictions/ssbroyden/
 
 # Data files (large binaries)
 *.mat

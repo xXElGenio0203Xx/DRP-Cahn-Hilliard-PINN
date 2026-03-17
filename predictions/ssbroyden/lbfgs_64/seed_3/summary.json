@@ -1,0 +1,23 @@
+{
+  "experiment": "lbfgs_64",
+  "optimizer": "L-BFGS-B",
+  "adam_epochs": 1000,
+  "bfgs_iters": 50000,
+  "adam_time_s": 403.36,
+  "bfgs_time_s": 17168.37,
+  "total_time_s": 17571.73,
+  "final_adam_loss": 0.029720654714296472,
+  "final_bfgs_loss": 0.0004337316402882385,
+  "n_params": 1361,
+  "mass_mean_t0": -0.004348,
+  "mass_mean_tmax": 0.00152,
+  "mass_drift": 0.00586748,
+  "l2_error_per_t": {
+    "t_0.0": 0.19618967,
+    "t_5.0": 0.74977034,
+    "t_10.0": 0.91203359,
+    "t_15.0": 1.0152599,
+    "t_20.0": 1.14104166
+  },
+  "l2_error_overall": 0.57643298
+}

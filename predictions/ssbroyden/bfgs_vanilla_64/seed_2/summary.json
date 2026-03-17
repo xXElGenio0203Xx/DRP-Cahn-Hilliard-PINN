@@ -1,0 +1,23 @@
+{
+  "experiment": "bfgs_vanilla_64",
+  "optimizer": "BFGS",
+  "adam_epochs": 1000,
+  "bfgs_iters": 50000,
+  "adam_time_s": 458.32,
+  "bfgs_time_s": 27209.19,
+  "total_time_s": 27667.51,
+  "final_adam_loss": 0.03042359037707529,
+  "final_bfgs_loss": 4.9549922227830604e-05,
+  "n_params": 1361,
+  "mass_mean_t0": -0.004012,
+  "mass_mean_tmax": 0.000115,
+  "mass_drift": 0.00412671,
+  "l2_error_per_t": {
+    "t_0.0": 0.17598132,
+    "t_5.0": 0.56320274,
+    "t_10.0": 0.71618899,
+    "t_15.0": 0.84421465,
+    "t_20.0": 0.91920458
+  },
+  "l2_error_overall": 0.46106597
+}
