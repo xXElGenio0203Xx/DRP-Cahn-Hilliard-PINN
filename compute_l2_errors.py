@@ -1,35 +1,32 @@
 #!/usr/bin/env python3
 """
-Compute relative ℓ₂ errors for all PINN experiments against the spectral
-reference solution.
+Compute relative L2 errors for all experiment runs against a reference solution.
 
 Usage:
-    python compute_l2_errors.py                        # defaults
-    python compute_l2_errors.py --ref reference_solution.npz --pred predictions/
-
-Reads each experiment's model.pt + config_used.yaml, reconstructs the PINN,
-evaluates it on the reference grid, and computes:
-    relative ℓ₂ error = ‖U_PINN − U_ref‖₂ / ‖U_ref‖₂
-
-Results are appended to each experiment's summary.json and printed as a table.
+    python compute_l2_errors.py
+    python compute_l2_errors.py --ref reference_solution_t10_dt0p01.npz --pred results
 """
 
 import argparse
 import json
-import math
 import os
 import sys
+from collections import defaultdict
 
 import numpy as np
-import yaml
-
 import torch
 import torch.nn as nn
+import yaml
 
+from evaluation_utils import (
+    DEFAULT_EVAL_BATCH_SIZE,
+    DEFAULT_N_EVAL_TIMES,
+    discover_run_dirs,
+    evaluate_net_against_reference,
+    first_threshold_crossing,
+    make_legacy_l2_error_map,
+)
 
-# ============================================================================
-# Network definition (must match run_experiment.py exactly)
-# ============================================================================
 
 class InputNormalization(nn.Module):
     def __init__(self, lo, hi):
@@ -38,6 +35,7 @@ class InputNormalization(nn.Module):
         hi = torch.tensor(hi, dtype=torch.get_default_dtype())
         self.register_buffer("shift", 0.5 * (lo + hi))
         self.register_buffer("scale", 2.0 / (hi - lo))
+
     def forward(self, x):
         return (x - self.shift) * self.scale
 
@@ -46,23 +44,18 @@ class OutputScaling(nn.Module):
     def __init__(self, s):
         super().__init__()
         self.s = s
+
     def forward(self, x):
         return x * self.s
 
 
-def variance_scaling_init(linear, scale=1.0):
-    fi, fo = linear.in_features, linear.out_features
-    limit = math.sqrt(3.0 * scale / (0.5 * (fi + fo)))
-    with torch.no_grad():
-        linear.weight.uniform_(-limit, limit)
-        if linear.bias is not None:
-            linear.bias.zero_()
-
-
 class CahnHilliardNet(nn.Module):
     ACTIVATIONS = {
-        "tanh": nn.Tanh, "relu": nn.ReLU, "gelu": nn.GELU,
-        "silu": nn.SiLU, "sigmoid": nn.Sigmoid,
+        "tanh": nn.Tanh,
+        "relu": nn.ReLU,
+        "gelu": nn.GELU,
+        "silu": nn.SiLU,
+        "sigmoid": nn.Sigmoid,
     }
 
     def __init__(self, layer_dims, activation_name="tanh",
@@ -80,25 +73,15 @@ class CahnHilliardNet(nn.Module):
         if output_scale != 1.0:
             layers.append(OutputScaling(output_scale))
         self.net = nn.Sequential(*layers)
-        # Apply variance scaling init to last linear layer
-        for m in reversed(list(self.net.modules())):
-            if isinstance(m, nn.Linear):
-                sc = 1.0 / (output_scale ** 2) if output_scale != 0 else 1.0
-                variance_scaling_init(m, scale=sc)
-                break
 
     def forward(self, x):
         return self.net(x)
 
 
-# ============================================================================
-# Reconstruct and evaluate PINN
-# ============================================================================
-
-def load_pinn(exp_dir, device="cpu"):
+def load_pinn(run_dir, device="cpu"):
     """Load a trained PINN from an experiment directory."""
-    cfg_path = os.path.join(exp_dir, "config_used.yaml")
-    model_path = os.path.join(exp_dir, "model.pt")
+    cfg_path = os.path.join(run_dir, "config_used.yaml")
+    model_path = os.path.join(run_dir, "model.pt")
 
     with open(cfg_path, "r") as f:
         cfg = yaml.safe_load(f)
@@ -133,190 +116,231 @@ def load_pinn(exp_dir, device="cpu"):
     return net, cfg
 
 
-def evaluate_pinn_on_grid(net, t_vals, xs, ys, device="cpu", batch_size=16384):
-    """
-    Evaluate the PINN at every (t, x, y) grid point.
-
-    Parameters
-    ----------
-    net : CahnHilliardNet
-    t_vals : (n_t,) array of time values
-    xs, ys : (nx,), (ny,) coordinate arrays
-    device : torch device
-
-    Returns
-    -------
-    U : (n_t, ny, nx) array of PINN predictions
-    """
-    nx, ny = len(xs), len(ys)
-    xx, yy = np.meshgrid(xs, ys, indexing="xy")  # (ny, nx)
-    n_spatial = nx * ny
-    U = np.zeros((len(t_vals), ny, nx))
-
-    for i, t_val in enumerate(t_vals):
-        tt = np.full(n_spatial, t_val)
-        coords = np.column_stack([tt, xx.ravel(), yy.ravel()])
-
-        # Evaluate in batches to avoid OOM
-        u_all = []
-        for start in range(0, n_spatial, batch_size):
-            end = min(start + batch_size, n_spatial)
-            X = torch.tensor(
-                coords[start:end],
-                dtype=torch.get_default_dtype(),
-                device=device,
-            )
-            with torch.no_grad():
-                u_batch = net(X)[:, 0].cpu().numpy()
-            u_all.append(u_batch)
-
-        U[i] = np.concatenate(u_all).reshape(ny, nx)
-
-    return U
+def resolve_reference_path(run_dir, cfg, cli_ref):
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    if cli_ref:
+        return cli_ref
+    cfg_ref = cfg.get("logging", {}).get("reference_solution")
+    if cfg_ref:
+        if os.path.isabs(cfg_ref):
+            return cfg_ref
+        return os.path.join(repo_root, cfg_ref)
+    return os.path.join(repo_root, "reference_solution_t10_dt0p01.npz")
 
 
-# ============================================================================
-# Error computation
-# ============================================================================
+def summarize_run(run_dir, summary, threshold, adam_phase_label, optimizer_label):
+    metrics_path = os.path.join(run_dir, "metrics.npz")
+    if not os.path.isfile(metrics_path):
+        return summary
 
-def compute_l2_errors(U_pinn, U_ref, t_vals):
-    """
-    Compute relative ℓ₂ error at each time and overall.
+    metrics = None
+    try:
+        metrics = dict(**np.load(metrics_path))
+    except Exception:
+        return summary
 
-    Returns
-    -------
-    errors_per_t : (n_t,) array — relative ℓ₂ error at each saved time
-    error_overall : float — relative ℓ₂ error across all time and space
-    """
-    n_t = len(t_vals)
-    errors_per_t = np.zeros(n_t)
+    l2_rel_curve = metrics.get("l2_rel_curve")
+    l2_rel_iters = metrics.get("l2_rel_iters")
+    if l2_rel_curve is None or l2_rel_iters is None or len(l2_rel_curve) == 0:
+        return summary
 
-    for i in range(n_t):
-        diff = U_pinn[i] - U_ref[i]
-        errors_per_t[i] = np.linalg.norm(diff) / (np.linalg.norm(U_ref[i]) + 1e-30)
+    l2_rel_curve = [float(v) for v in l2_rel_curve.tolist()]
+    l2_rel_iters = [int(v) for v in l2_rel_iters.tolist()]
+    summary["l2_rel_curve"] = l2_rel_curve
+    summary["l2_threshold"] = threshold
+    summary["iters_to_l2_rel_threshold"] = first_threshold_crossing(
+        l2_rel_iters, l2_rel_curve, threshold
+    )
+    if summary["iters_to_l2_rel_threshold"] is None:
+        summary["threshold_cross_phase"] = None
+    elif summary["iters_to_l2_rel_threshold"] <= summary.get("adam_epochs", 0):
+        summary["threshold_cross_phase"] = adam_phase_label
+    else:
+        summary["threshold_cross_phase"] = optimizer_label
+    return summary
 
-    # Overall error (Frobenius norm across all time × space)
-    diff_all = U_pinn - U_ref
-    error_overall = np.linalg.norm(diff_all) / (np.linalg.norm(U_ref) + 1e-30)
-
-    return errors_per_t, error_overall
-
-
-# ============================================================================
-# Main
-# ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Compute ℓ₂ errors vs reference")
-    parser.add_argument("--ref", type=str, default="reference_solution.npz",
-                        help="Path to reference solution .npz")
-    parser.add_argument("--pred", type=str, default="predictions",
-                        help="Directory containing experiment subdirectories")
-    parser.add_argument("--n-eval-times", type=int, default=21,
-                        help="Number of uniformly spaced times to evaluate")
+    parser = argparse.ArgumentParser(description="Compute relative L2 errors vs reference")
+    parser.add_argument(
+        "--ref",
+        type=str,
+        default=None,
+        help="Optional override for the reference solution path.",
+    )
+    parser.add_argument(
+        "--pred",
+        type=str,
+        default="results",
+        help="Root directory containing experiment output subdirectories.",
+    )
+    parser.add_argument(
+        "--n-eval-times",
+        type=int,
+        default=DEFAULT_N_EVAL_TIMES,
+        help="Number of uniformly spaced times to evaluate.",
+    )
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument(
+        "--eval-batch-size",
+        type=int,
+        default=DEFAULT_EVAL_BATCH_SIZE,
+        help="Batch size used when evaluating the network on the reference grid.",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="Relative L2 threshold used for the iteration-to-threshold summary.",
+    )
     args = parser.parse_args()
 
-    # Load reference
-    ref = np.load(args.ref)
-    t_ref = ref["t"]       # (101,)
-    xs_ref = ref["x"]      # (128,)
-    ys_ref = ref["y"]      # (128,)
-    U_ref_full = ref["U"]  # (101, 128, 128)
-
-    # Select subset of times for evaluation
-    eval_indices = np.linspace(0, len(t_ref) - 1, args.n_eval_times, dtype=int)
-    t_eval = t_ref[eval_indices]
-    U_ref = U_ref_full[eval_indices]
-
-    print(f"Reference: {args.ref}  ({len(t_ref)} snapshots, using {len(t_eval)} for eval)")
-    print(f"Grid: {len(xs_ref)}×{len(ys_ref)},  t ∈ [{t_eval[0]:.1f}, {t_eval[-1]:.1f}]")
-    print()
-
-    # Find experiments
-    exp_dirs = sorted([
-        d for d in os.listdir(args.pred)
-        if os.path.isdir(os.path.join(args.pred, d))
-        and os.path.isfile(os.path.join(args.pred, d, "model.pt"))
-    ])
-
-    if not exp_dirs:
-        print(f"No experiments found in {args.pred}")
+    run_dirs = discover_run_dirs(args.pred)
+    if not run_dirs:
+        print(f"No experiment runs found under {args.pred}")
         sys.exit(1)
 
-    print(f"Found {len(exp_dirs)} experiments.\n")
+    print(f"Found {len(run_dirs)} runs under {args.pred}\n")
 
-    # Results table
-    results = []
-    header = f"{'Experiment':30s} {'Optimizer':15s} {'ℓ₂ rel err':>14s} {'ℓ₂(t=0)':>12s} {'ℓ₂(t=10)':>12s} {'ℓ₂(t=20)':>12s} {'Loss':>12s}"
+    header = (
+        f"{'Run':45s} {'Optimizer':15s} {'L2 overall':>12s} "
+        f"{'L2 start':>12s} {'L2 mid':>12s} {'L2 end':>12s} "
+        f"{'Thresh iters':>12s} {'Loss':>12s}"
+    )
     print(header)
     print("-" * len(header))
 
-    for exp_name in exp_dirs:
-        exp_path = os.path.join(args.pred, exp_name)
+    results = []
+    by_experiment = defaultdict(list)
+
+    for run_dir in run_dirs:
+        run_label = os.path.relpath(run_dir, args.pred)
         try:
-            net, cfg = load_pinn(exp_path, device=args.device)
-            U_pinn = evaluate_pinn_on_grid(net, t_eval, xs_ref, ys_ref,
-                                           device=args.device)
-            errors_per_t, error_overall = compute_l2_errors(U_pinn, U_ref, t_eval)
+            net, cfg = load_pinn(run_dir, device=args.device)
+            ref_path = resolve_reference_path(run_dir, cfg, args.ref)
+            if not os.path.isfile(ref_path):
+                raise FileNotFoundError(f"reference solution not found: {ref_path}")
 
-            # Get the loss from summary
-            summary_path = os.path.join(exp_path, "summary.json")
-            with open(summary_path, "r") as f:
-                summary = json.load(f)
-            loss = summary.get("final_bfgs_loss") or summary.get("final_adam_loss") or 0
+            evaluation = evaluate_net_against_reference(
+                net,
+                ref_path=ref_path,
+                device=args.device,
+                batch_size=args.eval_batch_size,
+                n_eval_times=args.n_eval_times,
+            )
+
+            summary_path = os.path.join(run_dir, "summary.json")
+            if os.path.isfile(summary_path):
+                with open(summary_path, "r") as f:
+                    summary = json.load(f)
+            else:
+                summary = {}
+
+            summary["l2_rel_error_overall"] = float(evaluation["error_overall"])
+            summary["l2_rel_error_per_t"] = [
+                float(val) for val in evaluation["errors_per_t"]
+            ]
+            summary["l2_eval_times"] = [
+                float(val) for val in evaluation["t_eval"]
+            ]
+            summary["l2_error_overall"] = round(float(evaluation["error_overall"]), 8)
+            summary["l2_error_per_t"] = make_legacy_l2_error_map(
+                evaluation["t_eval"], evaluation["errors_per_t"]
+            )
+
             optimizer = summary.get("optimizer", "?")
-
-            # Find indices closest to t=0, t=10, t=20
-            idx_0 = np.argmin(np.abs(t_eval - 0.0))
-            idx_10 = np.argmin(np.abs(t_eval - 10.0))
-            idx_20 = np.argmin(np.abs(t_eval - 20.0))
-
-            print(f"{exp_name:30s} {optimizer:15s} {error_overall:>14.4e} "
-                  f"{errors_per_t[idx_0]:>12.4e} "
-                  f"{errors_per_t[idx_10]:>12.4e} "
-                  f"{errors_per_t[idx_20]:>12.4e} "
-                  f"{loss:>12.4e}")
-
-            # Update summary.json with ℓ₂ errors
-            summary["l2_rel_error_overall"] = float(error_overall)
-            summary["l2_rel_error_t0"] = float(errors_per_t[idx_0])
-            summary["l2_rel_error_t10"] = float(errors_per_t[idx_10])
-            summary["l2_rel_error_t20"] = float(errors_per_t[idx_20])
-            summary["l2_rel_error_per_t"] = errors_per_t.tolist()
-            summary["l2_eval_times"] = t_eval.tolist()
+            adam_phase_label = cfg.get("training", {}).get("adam", {}).get(
+                "optimizer", "adam"
+            )
+            final_loss = summary.get("final_bfgs_loss")
+            if final_loss is None:
+                final_loss = summary.get("final_adam_loss")
+            summary = summarize_run(
+                run_dir,
+                summary,
+                args.threshold,
+                adam_phase_label,
+                optimizer,
+            )
+            threshold_iters = summary.get("iters_to_l2_rel_threshold")
 
             with open(summary_path, "w") as f:
                 json.dump(summary, f, indent=2)
 
-            results.append({
-                "experiment": exp_name,
+            errors_per_t = evaluation["errors_per_t"]
+            idx_start = 0
+            idx_mid = len(errors_per_t) // 2
+            idx_end = len(errors_per_t) - 1
+
+            print(
+                f"{run_label:45s} {optimizer:15s} "
+                f"{evaluation['error_overall']:12.4e} "
+                f"{errors_per_t[idx_start]:12.4e} "
+                f"{errors_per_t[idx_mid]:12.4e} "
+                f"{errors_per_t[idx_end]:12.4e} "
+                f"{str(threshold_iters):>12s} "
+                f"{(final_loss or 0.0):12.4e}"
+            )
+
+            row = {
+                "run": run_label,
+                "run_dir": run_dir,
+                "experiment": summary.get("experiment", cfg["experiment"]["name"]),
                 "optimizer": optimizer,
-                "l2_overall": error_overall,
-                "l2_t0": errors_per_t[idx_0],
-                "l2_t10": errors_per_t[idx_10],
-                "l2_t20": errors_per_t[idx_20],
-                "loss": loss,
-            })
+                "l2_rel_error_overall": float(evaluation["error_overall"]),
+                "l2_rel_error_per_t": [float(v) for v in errors_per_t],
+                "l2_eval_times": [float(v) for v in evaluation["t_eval"]],
+                "iters_to_l2_rel_threshold": threshold_iters,
+                "final_loss": final_loss,
+            }
+            results.append(row)
+            by_experiment[row["experiment"]].append(row)
+        except Exception as exc:
+            print(f"{run_label:45s} ERROR: {exc}")
 
-        except Exception as e:
-            print(f"{exp_name:30s} ERROR: {e}")
-
-    # Save combined results
     out_path = os.path.join(args.pred, "l2_errors.json")
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
-    print(f"\nResults saved to {out_path}")
 
-    # Summary statistics
-    print("\n=== Best results ===")
+    by_experiment_rows = []
+    for experiment, rows in sorted(by_experiment.items()):
+        l2_values = [row["l2_rel_error_overall"] for row in rows]
+        threshold_values = [
+            row["iters_to_l2_rel_threshold"]
+            for row in rows
+            if row["iters_to_l2_rel_threshold"] is not None
+        ]
+        by_experiment_rows.append({
+            "experiment": experiment,
+            "n_runs": len(rows),
+            "l2_rel_error_mean": float(sum(l2_values) / len(l2_values)),
+            "l2_rel_error_std": (
+                float(np.std(l2_values, ddof=0))
+                if len(l2_values) > 1 else 0.0
+            ),
+            "iters_to_l2_rel_threshold_mean": (
+                float(sum(threshold_values) / len(threshold_values))
+                if threshold_values else None
+            ),
+            "iters_to_l2_rel_threshold_std": (
+                float(np.std(threshold_values, ddof=0))
+                if len(threshold_values) > 1 else 0.0
+            ) if threshold_values else None,
+        })
+
+    out_by_experiment = os.path.join(args.pred, "l2_errors_by_experiment.json")
+    with open(out_by_experiment, "w") as f:
+        json.dump(by_experiment_rows, f, indent=2)
+
+    print(f"\nPer-run results saved to {out_path}")
+    print(f"Experiment summary saved to {out_by_experiment}")
+
     if results:
-        best = min(results, key=lambda r: r["l2_overall"])
-        print(f"  Best overall ℓ₂: {best['experiment']}  →  {best['l2_overall']:.4e}")
-        best_t0 = min(results, key=lambda r: r["l2_t0"])
-        print(f"  Best ℓ₂(t=0):    {best_t0['experiment']}  →  {best_t0['l2_t0']:.4e}")
-        best_t20 = min(results, key=lambda r: r["l2_t20"])
-        print(f"  Best ℓ₂(t=20):   {best_t20['experiment']}  →  {best_t20['l2_t20']:.4e}")
+        best = min(results, key=lambda row: row["l2_rel_error_overall"])
+        print(
+            f"\nBest overall L2: {best['run']} -> "
+            f"{best['l2_rel_error_overall']:.4e}"
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,90 @@
+# ========================================================================
+# E2_radam_5000
+# ========================================================================
+#   RAdam warmup (5,000 epochs) — longer RAdam preconditioning. Combines
+#   RAdam's built-in variance rectification with extended warmup (5K
+#   epochs). Direct comparison with B2_warmup_5000 (Adam 5K). This is a
+#   DRP extension — not in the paper. Differs from canonical:
+#   optimizer='radam', 5000 epochs.
+# ========================================================================
+
+experiment:
+  name: E2_radam_5000
+  description: 'RAdam warmup (5,000 epochs) — longer RAdam preconditioning. Combines
+    RAdam''s built-in variance rectification with extended warmup (5K epochs). Direct
+    comparison with B2_warmup_5000 (Adam 5K). This is a DRP extension — not in the
+    paper. Differs from canonical: optimizer=''radam'', 5000 epochs.'
+equation:
+  D: 1.0
+  a2: 1.0
+  a4: 1.0
+domain:
+  x_min: 0.0
+  x_max: 128.0
+  y_min: 0.0
+  y_max: 128.0
+  t_min: 0.0
+  t_max: 10.0
+  normalize_inputs: true
+initial_condition:
+  type: uniform_random
+  low: -1.0
+  high: 1.0
+  grid_nx: 128
+  grid_ny: 128
+  smoothing_sigma: 2.0
+  seed: 42
+boundary_conditions:
+  type: periodic
+  enforcement: soft
+  derivative_order: 1
+network:
+  layer_dims:
+  - 3
+  - 20
+  - 20
+  - 20
+  - 20
+  - 1
+  activation: tanh
+  output_scaling: 1.0
+  final_layer_init: variance_scaling
+training:
+  adam:
+    epochs: 5000
+    lr: 0.001
+    betas:
+    - 0.99
+    - 0.999
+    eps: 1.0e-20
+    lr_decay_rate: 0.98
+    lr_decay_steps: 1000
+    optimizer: radam
+  bfgs:
+    epochs: 50000
+    batch_size: 500
+    method: BFGS
+    variant: SSBroyden2
+    initial_scale: false
+    power: 1.0
+sampling:
+  n_interior: 10000
+  n_initial: 1000
+  n_boundary: 500
+  resample_every: 500
+  rad:
+    enabled: true
+    k1: 1.0
+    k2: 1.0
+    n_candidates: 50000
+loss_weights:
+  pde: 1.0
+  ic: 5.0
+  bc: 5.0
+logging:
+  print_every: 500
+  eval_every: 500
+  reference_solution: reference_solution_t10_dt0p01.npz
+  results_dir: results/E2_radam_5000
+seed: 2
+dtype: float64

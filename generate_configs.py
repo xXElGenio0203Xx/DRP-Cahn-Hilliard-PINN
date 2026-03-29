@@ -3,32 +3,47 @@
 generate_configs.py — Generate all v2 experiment configs
 =========================================================
 
-Creates the configs/ directory with 20 paper-aligned YAML files for the
-Cahn-Hilliard PINN experiment suite.  Each config is fully self-contained
-(no inheritance) and includes a detailed description of what it tests,
-how it differs from the canonical, and what paper section it parallels.
+Creates split config subdirectories under configs/ with 27 paper-aligned
+YAML files for the Cahn-Hilliard PINN experiment suite. Each config is
+fully self-contained (no inheritance) and includes a detailed description
+of what it tests, how it differs from the canonical, and what paper
+section it parallels.
 
 Run once:
     python generate_configs.py
 
-The suite is structured in 7 groups (A–G), each testing one ablation axis:
+The suite is structured in 8 groups (A–H), each testing one ablation axis:
     A. Optimizer variant comparison     (6 configs) — core paper result
     B. Adam warmup duration             (3 configs) — preconditioning study
     C. Network architecture             (2 configs) — capacity study
     D. Adam-only baseline               (1 config)  — first-order floor
     E. RAdam warmup (DRP extension)     (2 configs) — not in original paper
-    F. Resampling frequency & points    (3 configs) — collocation study
+    F. Resampling frequency & points    (6 configs) — collocation study
     G. Hessian scaling & power transform(3 configs) — conditioning study
+    H. RAD parameter sweep              (4 configs) — adaptive sampling study
 
-Total: 20 configs × 3 seeds = 60 SLURM jobs.
+Total: 27 configs × 3 seeds = 81 SLURM jobs.
 """
 
 import os
 import yaml
 from copy import deepcopy
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
-os.makedirs(OUT_DIR, exist_ok=True)
+CONFIG_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs")
+CORE_OUT_DIR = os.path.join(CONFIG_ROOT, "v2_core")
+FH_OUT_DIR = os.path.join(CONFIG_ROOT, "v2_fh_ablation")
+os.makedirs(CORE_OUT_DIR, exist_ok=True)
+os.makedirs(FH_OUT_DIR, exist_ok=True)
+
+FH_ABLATION_NAMES = {
+    "F4_points_5k",
+    "F5_adam_resample_200",
+    "F6_adam_resample_1000",
+    "H1_rad_k1_0p5",
+    "H2_rad_k1_2p0",
+    "H3_rad_k2_0p5",
+    "H4_rad_k2_2p0",
+}
 
 
 # ============================================================================
@@ -61,7 +76,7 @@ CANONICAL = {
     "domain": {
         "x_min": 0.0, "x_max": 128.0,
         "y_min": 0.0, "y_max": 128.0,
-        "t_min": 0.0, "t_max": 20.0,
+        "t_min": 0.0, "t_max": 10.0,
         "normalize_inputs": True,
     },
     "initial_condition": {
@@ -113,7 +128,12 @@ CANONICAL = {
         },
     },
     "loss_weights": {"pde": 1.0, "ic": 5.0, "bc": 5.0},
-    "logging": {"print_every": 500, "results_dir": "results/A5_ssbroyden2"},
+    "logging": {
+        "print_every": 500,
+        "eval_every": 500,
+        "reference_solution": "reference_solution_t10_dt0p01.npz",
+        "results_dir": "results/A5_ssbroyden2",
+    },
     "seed": 2,
     "dtype": "float64",
 }
@@ -375,6 +395,36 @@ EXPERIMENTS["F3_points_20k"] = make(
     },
 )
 
+EXPERIMENTS["F4_points_5k"] = make(
+    "F4_points_5k",
+    "Half collocation points: 5,000 interior (vs 10,000 canonical), "
+    "500 IC points (vs 1,000). Tests whether the canonical point count is "
+    "already above the useful resolution level for the t<=10 horizon. "
+    "Differs from canonical: n_interior=5000, n_initial=500.",
+    {
+        "sampling.n_interior": 5000,
+        "sampling.n_initial": 500,
+    },
+)
+
+EXPERIMENTS["F5_adam_resample_200"] = make(
+    "F5_adam_resample_200",
+    "Frequent Adam resampling: refresh collocation points every 200 Adam "
+    "epochs instead of 500. Tests whether earlier first-order exposure to "
+    "fresh RAD points improves the warm-start before quasi-Newton. "
+    "Differs from canonical: resample_every=200.",
+    {"sampling.resample_every": 200},
+)
+
+EXPERIMENTS["F6_adam_resample_1000"] = make(
+    "F6_adam_resample_1000",
+    "Infrequent Adam resampling: refresh collocation points every 1,000 "
+    "Adam epochs instead of 500. Tests whether a longer-lived Adam point "
+    "set gives a cleaner warm-start or encourages overfitting. "
+    "Differs from canonical: resample_every=1000.",
+    {"sampling.resample_every": 1000},
+)
+
 
 # ============================================================================
 # GROUP G: Hessian Scaling & Power Transform
@@ -415,12 +465,52 @@ EXPERIMENTS["G3_power_4"] = make(
 
 
 # ============================================================================
+# GROUP H: RAD Parameter Sweep
+# ============================================================================
+# RAD samples PDE points with probability proportional to |residual|^k1
+# plus a baseline k2 term. These configs perturb each parameter one at a time.
+
+EXPERIMENTS["H1_rad_k1_0p5"] = make(
+    "H1_rad_k1_0p5",
+    "RAD exponent sweep: k1=0.5 instead of 1.0. Softer residual weighting "
+    "makes RAD less concentrated on sharp residual peaks. "
+    "Differs from canonical: sampling.rad.k1=0.5.",
+    {"sampling.rad.k1": 0.5},
+)
+
+EXPERIMENTS["H2_rad_k1_2p0"] = make(
+    "H2_rad_k1_2p0",
+    "RAD exponent sweep: k1=2.0 instead of 1.0. Stronger residual weighting "
+    "pushes sampling more aggressively toward discontinuities and sharp "
+    "interfaces. Differs from canonical: sampling.rad.k1=2.0.",
+    {"sampling.rad.k1": 2.0},
+)
+
+EXPERIMENTS["H3_rad_k2_0p5"] = make(
+    "H3_rad_k2_0p5",
+    "RAD baseline sweep: k2=0.5 instead of 1.0. Lower baseline probability "
+    "makes the residual-driven term dominate more strongly. "
+    "Differs from canonical: sampling.rad.k2=0.5.",
+    {"sampling.rad.k2": 0.5},
+)
+
+EXPERIMENTS["H4_rad_k2_2p0"] = make(
+    "H4_rad_k2_2p0",
+    "RAD baseline sweep: k2=2.0 instead of 1.0. Higher baseline probability "
+    "keeps RAD closer to uniform sampling while still biasing toward high "
+    "residual regions. Differs from canonical: sampling.rad.k2=2.0.",
+    {"sampling.rad.k2": 2.0},
+)
+
+
+# ============================================================================
 # WRITE ALL CONFIGS
 # ============================================================================
 
 def write_config(name, cfg):
     """Write a single config file with a descriptive header comment."""
-    path = os.path.join(OUT_DIR, f"{name}.yaml")
+    out_dir = FH_OUT_DIR if name in FH_ABLATION_NAMES else CORE_OUT_DIR
+    path = os.path.join(out_dir, f"{name}.yaml")
 
     # Wrap description into comment lines
     desc = cfg["experiment"]["description"]
@@ -452,7 +542,7 @@ def write_config(name, cfg):
 
 
 if __name__ == "__main__":
-    print(f"Generating {len(EXPERIMENTS)} configs in {OUT_DIR}/\n")
+    print(f"Generating {len(EXPERIMENTS)} configs in {CONFIG_ROOT}/\n")
 
     for name in sorted(EXPERIMENTS):
         path = write_config(name, EXPERIMENTS[name])
@@ -480,6 +570,12 @@ if __name__ == "__main__":
             extras.append(f"p={cfg['training']['bfgs']['power']}")
         if cfg["sampling"]["n_interior"] != 10000:
             extras.append(f"Nint={cfg['sampling']['n_interior']}")
+        if cfg["sampling"]["resample_every"] != 500:
+            extras.append(f"resamp={cfg['sampling']['resample_every']}")
+        if cfg["sampling"]["rad"]["k1"] != 1.0:
+            extras.append(f"k1={cfg['sampling']['rad']['k1']}")
+        if cfg["sampling"]["rad"]["k2"] != 1.0:
+            extras.append(f"k2={cfg['sampling']['rad']['k2']}")
         print(f"{name:25s} {adam_ep:6d} {bfgs_ep:6d} "
               f"{variant:15s} {net:30s} {nchange:5d} "
               f"{', '.join(extras)}")

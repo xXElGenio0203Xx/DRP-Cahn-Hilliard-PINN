@@ -5,9 +5,9 @@ Cahn-Hilliard PINN — Headless Training Script
 Converted from Cahn_Hilliard_Pytorch.ipynb for batch execution on OSCAR.
 
 Usage:
-    python -u run_experiment.py configs/A5_ssbroyden2.yaml
-    python -u run_experiment.py configs/A5_ssbroyden2.yaml --seed 1
-    python -u run_experiment.py configs/D1_adam_only.yaml --seed 3
+    python -u run_experiment.py configs/v2_core/A5_ssbroyden2.yaml
+    python -u run_experiment.py configs/v2_core/A5_ssbroyden2.yaml --seed 1
+    python -u run_experiment.py configs/v2_fh_ablation/H2_rad_k1_2p0.yaml --seed 3
 
 The first positional argument is the path to a YAML configuration file.
 Use --seed N to override the random seed from the config; results are
@@ -42,6 +42,15 @@ import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for OSCAR (no display)
 import matplotlib.pyplot as plt
 
+from evaluation_utils import (
+    DEFAULT_EVAL_BATCH_SIZE,
+    DEFAULT_N_EVAL_TIMES,
+    evaluate_net_against_reference,
+    first_threshold_crossing,
+    load_reference_solution,
+    make_legacy_l2_error_map,
+)
+
 # ============================================================================
 # 0. PARSE CLI ARGUMENTS
 # ============================================================================
@@ -63,6 +72,7 @@ CONFIG_PATH = args.config
 if not os.path.isfile(CONFIG_PATH):
     print(f"ERROR: Config file not found: {CONFIG_PATH}")
     sys.exit(1)
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 print(f"=" * 70)
 print(f"Cahn-Hilliard PINN — Batch Training")
@@ -148,6 +158,12 @@ lam_bc     = lw.get("bc", 5.0)
 log_cfg    = cfg.get("logging", {})
 Nprint     = log_cfg.get("print_every", 100)
 RESULTS_DIR = log_cfg.get("results_dir", "results_cahn_hilliard")
+EVAL_EVERY = log_cfg.get("eval_every", 500)
+REF_FILE   = log_cfg.get("reference_solution", None)
+EVAL_BATCH_SIZE = log_cfg.get("eval_batch_size", DEFAULT_EVAL_BATCH_SIZE)
+L2_THRESHOLD = float(log_cfg.get("l2_threshold", 0.5))
+if REF_FILE and not os.path.isabs(REF_FILE):
+    REF_FILE = os.path.join(PROJECT_ROOT, REF_FILE)
 
 # --- DRP MODIFICATION: --seed CLI override -----------------------------------
 # When --seed is provided, override the config's seed and place results in
@@ -398,7 +414,7 @@ def compute_bc_derivatives(net, X):
 mse = nn.MSELoss()
 
 
-def compute_loss(net, X_int, X_ic, bc_data):
+def compute_loss_components(net, X_int, X_ic, bc_data):
     X_xlo, X_xhi, X_ylo, X_yhi = bc_data
     _, residual = compute_pde_residual(net, X_int)
     L_pde = mse(residual, torch.zeros_like(residual))
@@ -422,25 +438,46 @@ def compute_loss(net, X_int, X_ic, bc_data):
         L_bc = mse(U_lo_x, U_hi_x) + mse(U_lo_y, U_hi_y)
 
     total = lam_pde * L_pde + lam_ic * L_ic + lam_bc * L_bc
-    return total, float(L_pde.detach())
+    return {"total": total, "pde": L_pde, "ic": L_ic, "bc": L_bc}
+
+
+def detach_loss_components(loss_components):
+    return {
+        name: float(value.detach().cpu())
+        for name, value in loss_components.items()
+    }
+
+
+def compute_loss(net, X_int, X_ic, bc_data):
+    loss_components = compute_loss_components(net, X_int, X_ic, bc_data)
+    return loss_components["total"], float(loss_components["pde"].detach())
+
+
+def evaluate_loss_components(net, X_int, X_ic, bc_data):
+    return detach_loss_components(compute_loss_components(net, X_int, X_ic, bc_data))
 
 
 def adam_step(net, optimizer, X_int, X_ic, bc_data):
     for p in net.parameters():
         p.grad = None
-    loss_val, pde_val = compute_loss(net, X_int, X_ic, bc_data)
-    loss_val.backward()
+    loss_components = compute_loss_components(net, X_int, X_ic, bc_data)
+    loss_components["total"].backward()
     optimizer.step()
-    return float(loss_val.detach()), pde_val
+    return detach_loss_components(loss_components)
 
 
-def scipy_loss_and_grad(weights, net, X_int, X_ic, bc_data, power=1.0):
+def set_model_weights(net, weights):
     device = next(net.parameters()).device
-    dtype  = next(net.parameters()).dtype
+    dtype = next(net.parameters()).dtype
     w = torch.as_tensor(weights, dtype=dtype, device=device)
     with torch.no_grad():
         vector_to_parameters(w, net.parameters())
-    loss_val, _ = compute_loss(net, X_int, X_ic, bc_data)
+
+
+def scipy_loss_and_grad(weights, net, X_int, X_ic, bc_data, power=1.0):
+    set_model_weights(net, weights)
+    loss_components = compute_loss_components(net, X_int, X_ic, bc_data)
+    loss_val = loss_components["total"]
     loss_eff = loss_val if power == 1.0 else loss_val ** (1.0 / power)
     params = list(net.parameters())
     grads = torch.autograd.grad(loss_eff, params,
@@ -461,6 +498,46 @@ def adaptive_rad(net, n_int, rad_args, n_cand=50000):
     return X_cand[ids]
 
 
+reference_eval_data = None
+if REF_FILE:
+    if os.path.isfile(REF_FILE):
+        reference_eval_data = load_reference_solution(
+            REF_FILE, n_eval_times=DEFAULT_N_EVAL_TIMES
+        )
+        print(
+            f"Reference eval: {REF_FILE} "
+            f"({len(reference_eval_data['t_eval'])} times)"
+        )
+    else:
+        print(
+            f"WARNING: reference_solution '{REF_FILE}' not found at startup; "
+            "relative L2 checkpoints will be skipped."
+        )
+
+l2_rel_iters = []
+l2_rel_curve = []
+last_l2_eval = None
+
+
+def record_l2_checkpoint(total_iteration):
+    global last_l2_eval
+    if reference_eval_data is None:
+        return None
+    was_training = net.training
+    last_l2_eval = evaluate_net_against_reference(
+        net,
+        ref_data=reference_eval_data,
+        device=DEVICE,
+        batch_size=EVAL_BATCH_SIZE,
+        predict_fn=lambda model, x: forward_pass(model, x),
+    )
+    if was_training:
+        net.train()
+    l2_rel_iters.append(int(total_iteration))
+    l2_rel_curve.append(float(last_l2_eval["error_overall"]))
+    return last_l2_eval
+
+
 # ============================================================================
 # 6. PHASE 1 — ADAM
 # ============================================================================
@@ -469,7 +546,10 @@ X_int = sample_interior(Nint)
 X_ic  = sample_initial(N0)
 bc_data = sample_boundary_periodic(Nb)
 
-adam_losses = []
+adam_total_loss = []
+adam_pde_loss = []
+adam_ic_loss = []
+adam_bc_loss = []
 adam_t0 = perf_counter()
 
 if Nepochs_ADAM > 0:
@@ -493,18 +573,27 @@ if Nepochs_ADAM > 0:
             X_ic    = sample_initial(N0)
             bc_data = sample_boundary_periodic(Nb)
 
-        loss_v, pde_v = adam_step(net, optimizer, X_int, X_ic, bc_data)
+        loss_components = adam_step(net, optimizer, X_int, X_ic, bc_data)
         scheduler.step()
-        adam_losses.append(loss_v)
+        adam_total_loss.append(loss_components["total"])
+        adam_pde_loss.append(loss_components["pde"])
+        adam_ic_loss.append(loss_components["ic"])
+        adam_bc_loss.append(loss_components["bc"])
+
+        if (epoch + 1) % EVAL_EVERY == 0:
+            record_l2_checkpoint(epoch + 1)
 
         if (epoch + 1) % Nprint == 0:
             print(f"Adam  epoch {epoch+1:5d}/{Nepochs_ADAM}  "
-                  f"loss={loss_v:.4e}  pde={pde_v:.4e}")
+                  f"loss={loss_components['total']:.4e}  "
+                  f"pde={loss_components['pde']:.4e}  "
+                  f"ic={loss_components['ic']:.4e}  "
+                  f"bc={loss_components['bc']:.4e}")
 
 adam_time = perf_counter() - adam_t0
-if adam_losses:
+if adam_total_loss:
     print(f"\nAdam phase complete: {adam_time:.1f}s  "
-          f"final loss={adam_losses[-1]:.4e}")
+          f"final loss={adam_total_loss[-1]:.4e}")
 else:
     print("Adam phase skipped (0 epochs).")
 
@@ -513,9 +602,11 @@ else:
 # ============================================================================
 
 bfgs_time = 0.0
-n_ckpts = 0
-bfgs_losses = np.array([])
-bfgs_pde = np.array([])
+bfgs_checkpoint_iters = []
+bfgs_total_loss = []
+bfgs_pde_loss = []
+bfgs_ic_loss = []
+bfgs_bc_loss = []
 
 if Nbfgs > 0:
     initial_weights = parameters_to_vector(
@@ -526,28 +617,43 @@ if Nbfgs > 0:
     if use_dense_hessian:
         H0 = np.eye(initial_weights.size, dtype=np.float64)
 
-    cont = 0
-    n_ckpts = Nbfgs // Nprint
-    bfgs_losses = np.zeros(n_ckpts)
-    bfgs_pde    = np.zeros(n_ckpts)
+    state = {"cont": 0}
 
     initial_scale = bfgs_init_scale
     power = bfgs_power
 
     def bfgs_callback(*, intermediate_result):
-        global cont
-        cont += 1
-        if cont % Nprint != 0:
+        state["cont"] += 1
+        cont = state["cont"]
+        should_eval = (cont % EVAL_EVERY == 0)
+        should_log = (cont % Nprint == 0) or (cont == Nbfgs)
+
+        if not should_eval and not should_log:
             return
-        idx = cont // Nprint - 1
-        if idx < 0 or idx >= n_ckpts:
+
+        if hasattr(intermediate_result, "x"):
+            set_model_weights(net, intermediate_result.x)
+
+        if should_eval:
+            record_l2_checkpoint(Nepochs_ADAM + cont)
+
+        if not should_log:
             return
-        loss_val = float(intermediate_result.fun)
-        if power != 1.0:
-            loss_val = loss_val ** power
-        bfgs_losses[idx] = loss_val
+
+        loss_components = evaluate_loss_components(net, X_int, X_ic, bc_data)
+        bfgs_checkpoint_iters.append(cont)
+        bfgs_total_loss.append(loss_components["total"])
+        bfgs_pde_loss.append(loss_components["pde"])
+        bfgs_ic_loss.append(loss_components["ic"])
+        bfgs_bc_loss.append(loss_components["bc"])
         optimizer_label = bfgs_variant if use_dense_hessian else bfgs_method
-        print(f"{optimizer_label}  iter {cont:5d}/{Nbfgs}  loss={loss_val:.4e}")
+        print(
+            f"{optimizer_label}  iter {cont:5d}/{Nbfgs}  "
+            f"loss={loss_components['total']:.4e}  "
+            f"pde={loss_components['pde']:.4e}  "
+            f"ic={loss_components['ic']:.4e}  "
+            f"bc={loss_components['bc']:.4e}"
+        )
 
     def build_bfgs_options():
         opts = {"maxiter": Nchange, "gtol": 0}
@@ -562,7 +668,7 @@ if Nbfgs > 0:
 
     bfgs_t0 = perf_counter()
 
-    while cont < Nbfgs:
+    while state["cont"] < Nbfgs:
         result = minimize(
             scipy_loss_and_grad,
             initial_weights,
@@ -593,12 +699,30 @@ if Nbfgs > 0:
         bc_data = sample_boundary_periodic(Nb)
         initial_scale = False
 
+    set_model_weights(net, initial_weights)
     bfgs_time = perf_counter() - bfgs_t0
     optimizer_label = bfgs_variant if use_dense_hessian else bfgs_method
     print(f"\n{optimizer_label} phase complete: {bfgs_time:.1f}s")
     print(f"Total training time: {adam_time + bfgs_time:.1f}s")
 else:
     print(f"\nAdam-only mode: no BFGS phase.  Total time: {adam_time:.1f}s")
+
+total_training_iters = Nepochs_ADAM + Nbfgs
+if reference_eval_data is not None:
+    if not l2_rel_iters or l2_rel_iters[-1] != total_training_iters:
+        record_l2_checkpoint(total_training_iters)
+
+adam_losses = np.array(adam_total_loss, dtype=np.float64)
+bfgs_losses = np.array(bfgs_total_loss, dtype=np.float64)
+bfgs_iters = np.array(bfgs_checkpoint_iters, dtype=np.int64)
+adam_pde_loss = np.array(adam_pde_loss, dtype=np.float64)
+adam_ic_loss = np.array(adam_ic_loss, dtype=np.float64)
+adam_bc_loss = np.array(adam_bc_loss, dtype=np.float64)
+bfgs_pde_loss = np.array(bfgs_pde_loss, dtype=np.float64)
+bfgs_ic_loss = np.array(bfgs_ic_loss, dtype=np.float64)
+bfgs_bc_loss = np.array(bfgs_bc_loss, dtype=np.float64)
+l2_rel_iters = np.array(l2_rel_iters, dtype=np.int64)
+l2_rel_curve = np.array(l2_rel_curve, dtype=np.float64)
 
 # ============================================================================
 # 8. SAVE RESULTS
@@ -613,8 +737,19 @@ print(f"\nModel saved to {RESULTS_DIR}/model.pt")
 # Metrics
 np.savez_compressed(
     os.path.join(RESULTS_DIR, "metrics.npz"),
-    adam_losses=np.array(adam_losses),
-    bfgs_losses=bfgs_losses if Nbfgs > 0 else np.array([]),
+    adam_losses=adam_losses,
+    bfgs_losses=bfgs_losses,
+    adam_total_loss=adam_losses,
+    adam_pde_loss=adam_pde_loss,
+    adam_ic_loss=adam_ic_loss,
+    adam_bc_loss=adam_bc_loss,
+    bfgs_total_loss=bfgs_losses,
+    bfgs_pde_loss=bfgs_pde_loss,
+    bfgs_ic_loss=bfgs_ic_loss,
+    bfgs_bc_loss=bfgs_bc_loss,
+    bfgs_iters=bfgs_iters,
+    l2_rel_iters=l2_rel_iters,
+    l2_rel_curve=l2_rel_curve,
     adam_time=adam_time,
     bfgs_time=bfgs_time,
     total_time=adam_time + bfgs_time,
@@ -627,6 +762,26 @@ with open(os.path.join(RESULTS_DIR, "config_used.yaml"), "w") as f:
     yaml.dump(cfg, f, default_flow_style=False)
 
 # JSON summary
+final_l2_overall = float(last_l2_eval["error_overall"]) if last_l2_eval else None
+final_l2_per_t = (
+    [float(val) for val in last_l2_eval["errors_per_t"]]
+    if last_l2_eval else None
+)
+final_l2_times = (
+    [float(val) for val in last_l2_eval["t_eval"]]
+    if last_l2_eval else None
+)
+iters_to_l2_rel_threshold = (
+    first_threshold_crossing(l2_rel_iters, l2_rel_curve, L2_THRESHOLD)
+    if l2_rel_curve.size > 0 else None
+)
+threshold_cross_phase = None
+if iters_to_l2_rel_threshold is not None:
+    if iters_to_l2_rel_threshold <= Nepochs_ADAM or Nbfgs == 0:
+        threshold_cross_phase = adam_optimizer
+    else:
+        threshold_cross_phase = optimizer_label
+
 summary = {
     "experiment": cfg["experiment"]["name"],
     "optimizer": optimizer_label,
@@ -635,35 +790,136 @@ summary = {
     "adam_time_s": round(adam_time, 2),
     "bfgs_time_s": round(bfgs_time, 2),
     "total_time_s": round(adam_time + bfgs_time, 2),
-    "final_adam_loss": adam_losses[-1] if adam_losses else None,
-    "final_bfgs_loss": float(bfgs_losses[bfgs_losses > 0][-1]) if Nbfgs > 0 and (bfgs_losses > 0).any() else None,
+    "final_adam_loss": float(adam_losses[-1]) if adam_losses.size > 0 else None,
+    "final_bfgs_loss": float(bfgs_losses[-1]) if bfgs_losses.size > 0 else None,
     "n_params": n_params,
+    "l2_rel_error_overall": final_l2_overall,
+    "l2_rel_error_per_t": final_l2_per_t,
+    "l2_eval_times": final_l2_times,
+    "l2_threshold": L2_THRESHOLD,
+    "iters_to_l2_rel_threshold": iters_to_l2_rel_threshold,
+    "threshold_cross_phase": threshold_cross_phase,
+    "l2_rel_curve": [float(val) for val in l2_rel_curve],
 }
-with open(os.path.join(RESULTS_DIR, "summary.json"), "w") as f:
-    json.dump(summary, f, indent=2)
-print(f"Summary saved to {RESULTS_DIR}/summary.json")
+if final_l2_overall is not None:
+    summary["l2_error_overall"] = round(final_l2_overall, 8)
+if final_l2_times is not None and final_l2_per_t is not None:
+    summary["l2_error_per_t"] = make_legacy_l2_error_map(
+        final_l2_times, final_l2_per_t
+    )
 
 # ============================================================================
 # 9. PLOTS (saved to disk, no display)
 # ============================================================================
 
-# Loss curve
+def build_phase_curve(adam_values, bfgs_values):
+    x_parts = []
+    y_parts = []
+    if adam_values.size > 0:
+        x_parts.append(np.arange(1, len(adam_values) + 1, dtype=np.int64))
+        y_parts.append(adam_values)
+    if bfgs_values.size > 0:
+        x_parts.append(Nepochs_ADAM + bfgs_iters)
+        y_parts.append(bfgs_values)
+    if not x_parts:
+        return np.array([], dtype=np.int64), np.array([], dtype=np.float64)
+    return np.concatenate(x_parts), np.concatenate(y_parts)
+
+
+def safe_plot_values(values):
+    return np.maximum(values, 1e-30)
+
+
+# Total loss curve
 fig, ax = plt.subplots(figsize=(10, 4))
-ax.semilogy(range(1, len(adam_losses) + 1), adam_losses, label="Adam", alpha=0.8)
-if Nbfgs > 0:
-    bfgs_epochs = Nepochs_ADAM + np.arange(1, n_ckpts + 1) * Nprint
-    valid = bfgs_losses > 0
-    if valid.any():
-        ax.semilogy(bfgs_epochs[valid], bfgs_losses[valid],
-                     label=optimizer_label, alpha=0.8)
+if adam_losses.size > 0:
+    ax.semilogy(
+        np.arange(1, len(adam_losses) + 1),
+        safe_plot_values(adam_losses),
+        label=adam_optimizer.upper(),
+        alpha=0.85,
+    )
+if bfgs_losses.size > 0:
+    ax.semilogy(
+        Nepochs_ADAM + bfgs_iters,
+        safe_plot_values(bfgs_losses),
+        label=optimizer_label,
+        alpha=0.85,
+    )
+if Nbfgs > 0 and Nepochs_ADAM > 0:
     ax.axvline(Nepochs_ADAM, color="gray", ls="--", lw=0.8, label="Adam→BFGS")
 ax.set_xlabel("Iteration")
 ax.set_ylabel("Total Loss")
 ax.set_title(f"Cahn-Hilliard PINN — {cfg['experiment']['name']}")
 ax.legend()
 fig.tight_layout()
+fig.savefig(os.path.join(RESULTS_DIR, "loss_total.png"), dpi=150)
 fig.savefig(os.path.join(RESULTS_DIR, "loss_curve.png"), dpi=150)
 plt.close(fig)
+
+# Component loss curves
+pde_x, pde_y = build_phase_curve(adam_pde_loss, bfgs_pde_loss)
+ic_x, ic_y = build_phase_curve(adam_ic_loss, bfgs_ic_loss)
+bc_x, bc_y = build_phase_curve(adam_bc_loss, bfgs_bc_loss)
+
+fig, ax = plt.subplots(figsize=(10, 4))
+if pde_y.size > 0:
+    ax.semilogy(pde_x, safe_plot_values(pde_y), label="Residual / PDE", alpha=0.85)
+if bc_y.size > 0:
+    ax.semilogy(bc_x, safe_plot_values(bc_y), label="Boundary", alpha=0.85)
+if ic_y.size > 0:
+    ax.semilogy(ic_x, safe_plot_values(ic_y), label="Initial Condition", alpha=0.85)
+if Nbfgs > 0 and Nepochs_ADAM > 0:
+    ax.axvline(Nepochs_ADAM, color="gray", ls="--", lw=0.8, label="Adam→BFGS")
+ax.set_xlabel("Iteration")
+ax.set_ylabel("Loss")
+ax.set_title(f"Loss Components — {cfg['experiment']['name']}")
+ax.legend()
+fig.tight_layout()
+fig.savefig(os.path.join(RESULTS_DIR, "loss_components.png"), dpi=150)
+plt.close(fig)
+
+component_values = []
+for arr in (pde_y, ic_y, bc_y):
+    if arr.size > 0:
+        component_values.extend(arr[arr > 0].tolist())
+if component_values:
+    component_spread = max(component_values) / max(min(component_values), 1e-30)
+    if component_spread > 100.0:
+        fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+        component_specs = [
+            ("Residual / PDE", pde_x, pde_y),
+            ("Boundary", bc_x, bc_y),
+            ("Initial Condition", ic_x, ic_y),
+        ]
+        for ax, (label, x_vals, y_vals) in zip(axes, component_specs):
+            if y_vals.size > 0:
+                ax.semilogy(x_vals, safe_plot_values(y_vals), label=label, alpha=0.85)
+            if Nbfgs > 0 and Nepochs_ADAM > 0:
+                ax.axvline(Nepochs_ADAM, color="gray", ls="--", lw=0.8)
+            ax.set_ylabel("Loss")
+            ax.legend(loc="best")
+        axes[-1].set_xlabel("Iteration")
+        fig.suptitle(f"Split Loss Components — {cfg['experiment']['name']}")
+        fig.tight_layout()
+        fig.savefig(os.path.join(RESULTS_DIR, "loss_components_split.png"), dpi=150)
+        plt.close(fig)
+
+if l2_rel_curve.size > 0:
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.semilogy(l2_rel_iters, safe_plot_values(l2_rel_curve), color="black", alpha=0.85)
+    ax.axhline(L2_THRESHOLD, color="tab:red", ls="--", lw=1.0,
+               label=f"L2 threshold = {L2_THRESHOLD:.2f}")
+    if iters_to_l2_rel_threshold is not None:
+        ax.axvline(iters_to_l2_rel_threshold, color="tab:green", ls=":",
+                   lw=1.0, label=f"first hit @ {iters_to_l2_rel_threshold}")
+    ax.set_xlabel("Total Iteration")
+    ax.set_ylabel("Relative L2")
+    ax.set_title(f"Relative L2 vs Iteration — {cfg['experiment']['name']}")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(RESULTS_DIR, "l2_curve.png"), dpi=150)
+    plt.close(fig)
 
 # Solution snapshots
 n_snap = 5
@@ -759,10 +1015,9 @@ summary["mass_drift"] = round(float(mass_drift), 8)
 # ============================================================================
 # 10. COMPARISON SNAPSHOTS  (spectral reference vs PINN)
 # ============================================================================
-ref_file = log_cfg.get("reference_solution", None)
-if ref_file and os.path.isfile(ref_file):
-    print(f"\nLoading reference solution from {ref_file} ...")
-    ref_data = np.load(ref_file)
+if REF_FILE and os.path.isfile(REF_FILE):
+    print(f"\nLoading reference solution from {REF_FILE} ...")
+    ref_data = np.load(REF_FILE)
     t_ref = ref_data["t"]        # (n_save,)
     x_ref = ref_data["x"]        # (nx_ref,)
     y_ref = ref_data["y"]        # (ny_ref,)
@@ -819,10 +1074,6 @@ if ref_file and os.path.isfile(ref_file):
         print(f"    t={tv:.1f}  L2_rel={e:.4e}")
     print(f"  Overall relative L2 = {l2_overall:.4e}")
 
-    summary["l2_error_per_t"] = {f"t_{snap_times[i]:.1f}": round(e, 8)
-                                  for i, e in enumerate(l2_per_t)}
-    summary["l2_error_overall"] = round(l2_overall, 8)
-
     # 3-row figure: reference / PINN / absolute error
     vmin = min(ref_on_grid.min(), pinn_snaps.min())
     vmax = max(ref_on_grid.max(), pinn_snaps.max())
@@ -866,11 +1117,12 @@ if ref_file and os.path.isfile(ref_file):
                 dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved comparison_snapshots.png")
-elif ref_file:
-    print(f"\nWARNING: reference_solution '{ref_file}' not found — skipping comparison.")
+elif REF_FILE:
+    print(f"\nWARNING: reference_solution '{REF_FILE}' not found — skipping comparison.")
 
 with open(os.path.join(RESULTS_DIR, "summary.json"), "w") as f:
     json.dump(summary, f, indent=2)
+print(f"Summary saved to {RESULTS_DIR}/summary.json")
 
 print(f"\nPlots saved to {RESULTS_DIR}/")
 
@@ -881,9 +1133,13 @@ print(f"  Adam: {Nepochs_ADAM} epochs, {adam_time:.1f}s")
 if Nbfgs > 0:
     print(f"  BFGS: {Nbfgs} iters ({optimizer_label}), {bfgs_time:.1f}s")
 print(f"  Total: {adam_time + bfgs_time:.1f}s")
-if adam_losses and Nbfgs == 0:
+if adam_losses.size > 0 and Nbfgs == 0:
     print(f"  Final loss: {adam_losses[-1]:.4e}")
-elif Nbfgs > 0 and (bfgs_losses > 0).any():
-    print(f"  Final loss: {bfgs_losses[bfgs_losses > 0][-1]:.4e}")
+elif bfgs_losses.size > 0:
+    print(f"  Final loss: {bfgs_losses[-1]:.4e}")
+if final_l2_overall is not None:
+    print(f"  Final relative L2: {final_l2_overall:.4e}")
+if iters_to_l2_rel_threshold is not None:
+    print(f"  Iterations to L2<={L2_THRESHOLD:.2f}: {iters_to_l2_rel_threshold}")
 print(f"  Results: {RESULTS_DIR}/")
 print(f"{'=' * 70}")

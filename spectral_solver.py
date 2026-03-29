@@ -12,7 +12,7 @@ The initial condition and domain are matched **exactly** to the PINN training
 config (cahn_hilliard_canonical.yaml):
   - Domain: [0, 128]² with Δx = Δy = 1
   - IC: U₀ ~ Uniform(-1, 1) on 128×128 grid, seed=42, σ=2.0 Gaussian smoothing
-  - Time: t ∈ [0, 20]
+  - Time: t ∈ [0, 20] by default, configurable via CLI
   - D = a₂ = a₄ = 1
 
 Time integration: semi-implicit Euler (linear part implicit, nonlinear explicit),
@@ -170,6 +170,8 @@ def solve_cahn_hilliard(
     ny=None,
     lx=None,
     ly=None,
+    t_min=None,
+    t_max=None,
 ):
     """
     Solve Cahn-Hilliard and return solution snapshots.
@@ -203,6 +205,8 @@ def solve_cahn_hilliard(
     ny = ny or NY
     lx = lx or LX
     ly = ly or LY
+    t_min = T_MIN if t_min is None else t_min
+    t_max = T_MAX if t_max is None else t_max
     dx = lx / nx
     dy = ly / ny
 
@@ -225,13 +229,13 @@ def solve_cahn_hilliard(
         E, E2, f1, f2, f3, f4 = build_etdrk4_coefficients(L, dt)
 
     # Time-stepping
-    n_steps = int(np.ceil((T_MAX - T_MIN) / dt))
-    t_save = np.linspace(T_MIN, T_MAX, n_save)
+    n_steps = int(np.ceil((t_max - t_min) / dt))
+    t_save = np.linspace(t_min, t_max, n_save)
     U_save = np.zeros((n_save, ny, nx))
     U_save[0] = U.copy()
     save_idx = 1
 
-    t = T_MIN
+    t = t_min
     for step in range(1, n_steps + 1):
         if method == "semi_implicit":
             U_hat = step_semi_implicit(U_hat, K2, K4, dt)
@@ -240,7 +244,7 @@ def solve_cahn_hilliard(
         else:
             raise ValueError(f"Unknown method: {method}")
 
-        t = T_MIN + step * dt
+        t = t_min + step * dt
 
         # Save snapshot if we've passed the next save time
         if save_idx < n_save and t >= t_save[save_idx] - 1e-12:
@@ -253,8 +257,8 @@ def solve_cahn_hilliard(
 
     if verbose:
         print(f"Solver complete: {n_steps} steps, {save_idx} snapshots saved.")
-        print(f"  <U>(t=0)  = {U_save[0].mean():.8f}")
-        print(f"  <U>(t=20) = {U_save[-1].mean():.8f}")
+        print(f"  <U>(t={t_min})  = {U_save[0].mean():.8f}")
+        print(f"  <U>(t={t_max}) = {U_save[-1].mean():.8f}")
         print(f"  Mass drift = {U_save[-1].mean() - U_save[0].mean():.2e}")
 
     return t_save, xs, ys, U_save
@@ -287,13 +291,17 @@ def main():
                         help=f"Domain length in y (default: {LY})")
     parser.add_argument("--output", type=str, default="reference_solution.npz",
                         help="Output file path")
+    parser.add_argument("--t-min", type=float, default=T_MIN,
+                        help=f"Start time (default: {T_MIN})")
+    parser.add_argument("--t-max", type=float, default=T_MAX,
+                        help=f"End time (default: {T_MAX})")
     args = parser.parse_args()
 
     print("=" * 60)
     print("Cahn-Hilliard Spectral Solver")
     print(f"  Method: {args.method}   dt={args.dt}")
     print(f"  Domain: {args.nx}×{args.ny}, L={args.lx}×{args.ly}")
-    print(f"  Time:   [{T_MIN}, {T_MAX}]")
+    print(f"  Time:   [{args.t_min}, {args.t_max}]")
     print(f"  IC:     seed={args.seed}, σ={args.sigma}")
     print(f"  Saving {args.n_save} snapshots → {args.output}")
     print("=" * 60)
@@ -308,6 +316,8 @@ def main():
         ny=args.ny,
         lx=args.lx,
         ly=args.ly,
+        t_min=args.t_min,
+        t_max=args.t_max,
     )
 
     np.savez_compressed(
@@ -318,6 +328,8 @@ def main():
         U=U_save,
         dt_solver=args.dt,
         method=args.method,
+        t_min_solver=args.t_min,
+        t_max_solver=args.t_max,
     )
     fsize = os.path.getsize(args.output) / 1024**2
     print(f"\nSaved: {args.output}  ({fsize:.1f} MB)")
