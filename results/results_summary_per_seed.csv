@@ -1,0 +1,1 @@
+run,experiment,seed,optimizer,adam_epochs,bfgs_iters,adam_time_s,bfgs_time_s,total_time_s,final_adam_loss,final_bfgs_loss,l2_rel_error_overall,iters_to_l2_rel_threshold,threshold_cross_phase,mass_drift,n_params

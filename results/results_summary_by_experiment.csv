@@ -1,0 +1,1 @@
+experiment,n_runs,optimizer,l2_rel_error_mean,l2_rel_error_std,iters_to_l2_rel_threshold_mean,iters_to_l2_rel_threshold_std,best_l2_rel_error,best_run
