@@ -1,0 +1,30 @@
+Lmod has detected the following error: The following module(s) are unknown:
+"python/3.11.0"
+
+Please check the spelling or version number. Also try "module spider ..."
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore_cache load "python/3.11.0"
+
+Also make sure that all modulefiles written in TCL start with the string
+#%Module
+
+
+
+Lmod has detected the following error: The following module(s) are unknown:
+"gcc/12.3"
+
+Please check the spelling or version number. Also try "module spider ..."
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore_cache load "gcc/12.3"
+
+Also make sure that all modulefiles written in TCL start with the string
+#%Module
+
+
+
+/var/spool/slurmd/job1311141/slurm_script: line 38: /oscar/home/emaciaso/DRP/.venv/bin/activate: Permission denied
+/var/spool/slurmd/job1311141/slurm_script: line 40: cd: /oscar/home/emaciaso/DRP/Optimizing_the_Optimizer_PINNs: Permission denied
+Traceback (most recent call last):
+  File "/oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/run_experiment.py", line 31, in <module>
+    import numpy as np
+ModuleNotFoundError: No module named 'numpy'

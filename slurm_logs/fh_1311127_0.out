@@ -1,0 +1,17 @@
+========================================================================
+SLURM Job ID:       1311128
+Array Task ID:      0
+Config index:       0
+Config file:        configs/v2_fh_ablation/F4_points_5k.yaml
+Seed:               1
+Reference file:     reference_solution_t10_dt0p01.npz
+Hostname:           node2343.oscar.ccv.brown.edu
+Date:               Mon Apr  6 12:31:37 PM EDT 2026
+Working directory:  /users/dwong33/DRP/Optimizing_the_Optimizer_PINNs
+Python:             /usr/bin/python
+========================================================================
+
+========================================================================
+Job finished at Mon Apr  6 12:31:37 PM EDT 2026
+Exit code: 0
+========================================================================

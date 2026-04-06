@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/run_experiment.py", line 37, in <module>
+    import torch
+ModuleNotFoundError: No module named 'torch'

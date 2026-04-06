@@ -1,0 +1,17 @@
+========================================================================
+SLURM Job ID:       1311253
+Array Task ID:      4
+Config index:       1
+Config file:        configs/v2_fh_ablation/F5_adam_resample_200.yaml
+Seed:               2
+Reference file:     reference_solution_t10_dt0p01.npz
+Hostname:           node2302.oscar.ccv.brown.edu
+Date:               Mon Apr  6 12:42:40 PM EDT 2026
+Working directory:  /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs
+Python:             /oscar/home/dwong33/astrolensing/bin/python
+========================================================================
+
+========================================================================
+Job finished at Mon Apr  6 12:42:43 PM EDT 2026
+Exit code: 0
+========================================================================

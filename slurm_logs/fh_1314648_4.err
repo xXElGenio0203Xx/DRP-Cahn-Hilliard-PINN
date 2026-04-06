@@ -1,0 +1,2 @@
+/var/spool/slurmd/job1314654/slurm_script: line 80: 1602810 Killed                  python -u run_experiment.py "$CONFIG_FILE" --seed "$SEED"
+[2026-04-06T15:29:57.424] error: Detected 1 oom_kill event in StepId=1314654.batch. Some of the step tasks have been OOM Killed.

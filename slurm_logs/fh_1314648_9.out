@@ -1,0 +1,42 @@
+## SLURM PROLOG ###############################################################
+##    Job ID : 1314659
+##  Job Name : ch_pinn_fh
+##  Nodelist : node1942
+##      CPUs : 
+##  Mem/Node : 4096 MB
+## Directory : /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs
+##   Job Started : Mon Apr  6 03:27:34 PM EDT 2026
+###############################################################################
+========================================================================
+SLURM Job ID:       1314659
+Array Task ID:      9
+Config index:       3
+Config file:        configs/v2_fh_ablation/H1_rad_k1_0p5.yaml
+Seed:               1
+Reference file:     reference_solution_t10_dt0p01.npz
+Hostname:           node1942.oscar.ccv.brown.edu
+Date:               Mon Apr  6 03:27:39 PM EDT 2026
+Working directory:  /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs
+Python:             /oscar/home/dwong33/DRP/.venv/bin/python
+========================================================================
+======================================================================
+Cahn-Hilliard PINN — Batch Training
+Config: configs/v2_fh_ablation/H1_rad_k1_0p5.yaml
+Seed override: 1
+======================================================================
+Config : H1_rad_k1_0p5
+  PDE  : dU/dt = 1.0*lap(lap U + 1.0*U + 1.0*U^3)
+  Domain: x=[0.0,128.0], y=[0.0,128.0], t=[0.0,10.0]
+  Net  : (3, 20, 20, 20, 20, 1)  activation=tanh
+  Train: Adam(1000) -> SSBroyden2(50000)
+  Samp : Nint=10000, N0=1000, Nb=500, RAD=on
+  Device: cpu
+
+Trainable parameters : 1361
+Reference eval: /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/reference_solution_t10_dt0p01.npz (21 times)
+Phase 1 optimizer: ADAM  lr=0.001
+
+========================================================================
+Job finished at Mon Apr  6 03:32:37 PM EDT 2026
+Exit code: 0
+========================================================================
