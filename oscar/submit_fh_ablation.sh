@@ -32,12 +32,13 @@
 #SBATCH --output=slurm_logs/fh_%A_%a.out
 #SBATCH --error=slurm_logs/fh_%A_%a.err
 
-module load python/3.11.0
-module load gcc/12.3
+module load python/3.11.11-5e66
+module load gcc/11.5.0-wfyo
 
-source /oscar/home/emaciaso/DRP/.venv/bin/activate
+source /oscar/home/dwong33/DRP/.venv/bin/activate
+cp /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/_optimize.py $(python -c "import scipy.optimize; import os; print(os.path.dirname(scipy.optimize.__file__))")/_optimize.py
 
-cd /oscar/home/emaciaso/DRP/Optimizing_the_Optimizer_PINNs
+cd /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs
 mkdir -p slurm_logs
 
 CONFIGS=($(printf '%s\n' configs/v2_fh_ablation/*.yaml | sort -t/ -k3,3))
