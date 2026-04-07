@@ -1,0 +1,2 @@
+/oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/run_experiment.py:1115: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  fig.tight_layout()

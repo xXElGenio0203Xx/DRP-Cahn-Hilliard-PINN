@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/run_experiment.py", line 695, in <module>
+    X_int = adaptive_rad(net, Nint, rad_args, Nsampling)
+  File "/oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/run_experiment.py", line 497, in adaptive_rad
+    ids = torch.multinomial(p, num_samples=n_int, replacement=False)
+RuntimeError: probability tensor contains either `inf`, `nan` or element < 0

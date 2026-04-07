@@ -1,0 +1,134 @@
+## SLURM PROLOG ###############################################################
+##    Job ID : 1315312
+##  Job Name : ch_pinn_fh
+##  Nodelist : node2321
+##      CPUs : 
+##  Mem/Node : 16384 MB
+## Directory : /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs
+##   Job Started : Mon Apr  6 04:19:35 PM EDT 2026
+###############################################################################
+========================================================================
+SLURM Job ID:       1315312
+Array Task ID:      5
+Config index:       1
+Config file:        configs/v2_fh_ablation/F5_adam_resample_200.yaml
+Seed:               3
+Reference file:     reference_solution_t10_dt0p01.npz
+Hostname:           node2321.oscar.ccv.brown.edu
+Date:               Mon Apr  6 04:19:39 PM EDT 2026
+Working directory:  /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs
+Python:             /oscar/home/dwong33/DRP/.venv/bin/python
+========================================================================
+======================================================================
+Cahn-Hilliard PINN — Batch Training
+Config: configs/v2_fh_ablation/F5_adam_resample_200.yaml
+Seed override: 3
+======================================================================
+Config : F5_adam_resample_200
+  PDE  : dU/dt = 1.0*lap(lap U + 1.0*U + 1.0*U^3)
+  Domain: x=[0.0,128.0], y=[0.0,128.0], t=[0.0,10.0]
+  Net  : (3, 20, 20, 20, 20, 1)  activation=tanh
+  Train: Adam(1000) -> SSBroyden2(50000)
+  Samp : Nint=10000, N0=1000, Nb=500, RAD=on
+  Device: cpu
+
+Trainable parameters : 1361
+Reference eval: /oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/reference_solution_t10_dt0p01.npz (21 times)
+Phase 1 optimizer: ADAM  lr=0.001
+Adam  epoch   500/1000  loss=3.0929e-02  pde=9.8847e-06  ic=6.1690e-03  bc=1.4958e-05
+Adam  epoch  1000/1000  loss=2.7996e-02  pde=2.3999e-06  ic=5.5912e-03  bc=7.6549e-06
+
+Adam phase complete: 743.2s  final loss=2.7996e-02
+SSBroyden2  iter   500/50000  loss=8.5911e-03  pde=5.2358e-04  ic=1.5975e-03  bc=1.6041e-05
+SSBroyden2  iter  1000/50000  loss=5.5671e-03  pde=8.1709e-04  ic=9.3718e-04  bc=1.2832e-05
+SSBroyden2  iter  1500/50000  loss=4.4164e-03  pde=8.6502e-04  ic=7.0276e-04  bc=7.5066e-06
+SSBroyden2  iter  2000/50000  loss=5.0072e-03  pde=9.0089e-04  ic=8.0981e-04  bc=1.1447e-05
+SSBroyden2  iter  2500/50000  loss=5.6785e-03  pde=8.0790e-04  ic=9.6275e-04  bc=1.1367e-05
+SSBroyden2  iter  3000/50000  loss=6.0798e-03  pde=6.9840e-04  ic=1.0715e-03  bc=4.7597e-06
+SSBroyden2  iter  3500/50000  loss=4.8744e-03  pde=4.8499e-04  ic=8.7002e-04  bc=7.8655e-06
+SSBroyden2  iter  4000/50000  loss=6.6379e-03  pde=5.7654e-04  ic=1.1980e-03  bc=1.4278e-05
+SSBroyden2  iter  4500/50000  loss=6.9669e-03  pde=2.9595e-04  ic=1.3123e-03  bc=2.1908e-05
+SSBroyden2  iter  5000/50000  loss=1.1647e-02  pde=6.8215e-04  ic=2.1767e-03  bc=1.6398e-05
+SSBroyden2  iter  5500/50000  loss=1.1652e-02  pde=6.4881e-04  ic=2.1758e-03  bc=2.4820e-05
+SSBroyden2  iter  6000/50000  loss=1.6201e-02  pde=3.4305e-04  ic=3.1175e-03  bc=5.4115e-05
+SSBroyden2  iter  6500/50000  loss=2.0434e-02  pde=6.2621e-04  ic=3.9422e-03  bc=1.9297e-05
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter  7000/50000  loss=2.4594e-02  pde=5.5175e-04  ic=4.8054e-03  bc=3.0708e-06
+SSBroyden2  iter  7500/50000  loss=2.0644e-02  pde=1.9067e-04  ic=4.0771e-03  bc=1.3631e-05
+SSBroyden2  iter  8000/50000  loss=1.8560e-02  pde=5.0094e-04  ic=3.5811e-03  bc=3.0813e-05
+SSBroyden2  iter  8500/50000  loss=2.2977e-02  pde=3.4767e-04  ic=4.4950e-03  bc=3.0748e-05
+SSBroyden2  iter  9000/50000  loss=2.5455e-02  pde=5.7075e-05  ic=5.0573e-03  bc=2.2318e-05
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter  9500/50000  loss=2.5481e-02  pde=2.6258e-04  ic=5.0417e-03  bc=1.9348e-06
+SSBroyden2  iter 10000/50000  loss=2.8236e-02  pde=5.0864e-05  ic=5.6331e-03  bc=3.8303e-06
+SSBroyden2  iter 10500/50000  loss=3.0196e-02  pde=2.8179e-05  ic=6.0277e-03  bc=5.8006e-06
+SSBroyden2  iter 11000/50000  loss=2.9460e-02  pde=1.3606e-04  ic=5.8542e-03  bc=1.0578e-05
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 11500/50000  loss=2.4863e-02  pde=5.0977e-04  ic=4.8272e-03  bc=4.3529e-05
+SSBroyden2  iter 12000/50000  loss=2.1985e-02  pde=6.2960e-04  ic=4.2620e-03  bc=9.1952e-06
+SSBroyden2  iter 12500/50000  loss=2.5036e-02  pde=5.3576e-04  ic=4.8936e-03  bc=6.4580e-06
+SSBroyden2  iter 13000/50000  loss=2.6142e-02  pde=3.2649e-04  ic=5.1223e-03  bc=4.0855e-05
+SSBroyden2  iter 13500/50000  loss=2.4736e-02  pde=6.9787e-04  ic=4.7745e-03  bc=3.3097e-05
+SSBroyden2  iter 14000/50000  loss=3.0812e-02  pde=2.8697e-04  ic=6.0946e-03  bc=1.0410e-05
+SSBroyden2  iter 14500/50000  loss=2.5903e-02  pde=4.7480e-04  ic=5.0507e-03  bc=3.4842e-05
+SSBroyden2  iter 15000/50000  loss=2.6373e-02  pde=4.6282e-04  ic=5.1541e-03  bc=2.7945e-05
+SSBroyden2  iter 15500/50000  loss=8.4538e-02  pde=4.5131e-02  ic=7.2162e-03  bc=6.6520e-04
+SSBroyden2  iter 16000/50000  loss=6.2399e+00  pde=6.1876e+00  ic=8.8586e-03  bc=1.6085e-03
+SSBroyden2  iter 16500/50000  loss=7.0790e+01  pde=7.0751e+01  ic=7.6896e-03  bc=3.1435e-07
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 17000/50000  loss=1.4149e+00  pde=1.3813e+00  ic=6.7296e-03  bc=2.4138e-09
+  [!] H lost positive-definiteness — resetting to I
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 17500/50000  loss=1.0293e+02  pde=1.0290e+02  ic=6.2300e-03  bc=2.3218e-10
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 18000/50000  loss=1.1524e+00  pde=1.1209e+00  ic=6.2949e-03  bc=1.3871e-09
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 18500/50000  loss=6.5863e+01  pde=6.5832e+01  ic=6.2514e-03  bc=3.4033e-09
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 19000/50000  loss=1.0507e+01  pde=1.0478e+01  ic=5.7233e-03  bc=9.7935e-09
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 19500/50000  loss=7.7920e-01  pde=7.4720e-01  ic=6.4002e-03  bc=5.1608e-08
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 20000/50000  loss=5.0954e+01  pde=5.0922e+01  ic=6.4668e-03  bc=1.0658e-08
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 20500/50000  loss=7.1255e+01  pde=7.1225e+01  ic=5.9254e-03  bc=2.1138e-08
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 21000/50000  loss=2.5628e+01  pde=2.5597e+01  ic=6.1360e-03  bc=3.6736e-06
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 21500/50000  loss=2.9101e+01  pde=2.9072e+01  ic=5.7754e-03  bc=3.9057e-09
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 22000/50000  loss=4.7543e+00  pde=4.7241e+00  ic=6.0403e-03  bc=1.2282e-09
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 22500/50000  loss=1.9825e+02  pde=1.9822e+02  ic=5.7718e-03  bc=1.1064e-08
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 23000/50000  loss=3.4607e+01  pde=3.4580e+01  ic=5.4876e-03  bc=2.4327e-08
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 23500/50000  loss=2.0391e-01  pde=1.7149e-01  ic=6.4846e-03  bc=1.0118e-10
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 24000/50000  loss=2.8887e-01  pde=2.5950e-01  ic=5.8741e-03  bc=1.0946e-09
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 24500/50000  loss=7.1011e+00  pde=7.0721e+00  ic=5.7982e-03  bc=3.9012e-09
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 25000/50000  loss=1.5179e+06  pde=1.5179e+06  ic=6.6197e-03  bc=4.3358e-05
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 25500/50000  loss=3.2255e+03  pde=3.2255e+03  ic=5.9612e-03  bc=1.1061e-05
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 26000/50000  loss=5.9686e+01  pde=5.9653e+01  ic=6.5704e-03  bc=1.2973e-08
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 26500/50000  loss=3.4050e+01  pde=3.4018e+01  ic=6.4062e-03  bc=1.8121e-08
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 27000/50000  loss=1.1562e+04  pde=1.1562e+04  ic=6.2322e-03  bc=2.2132e-06
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 27500/50000  loss=2.1811e+05  pde=2.1811e+05  ic=5.9393e-03  bc=6.3855e-06
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 28000/50000  loss=1.0571e+04  pde=1.0571e+04  ic=6.2965e-03  bc=3.1984e-06
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 28500/50000  loss=8.1632e+04  pde=8.1632e+04  ic=6.0013e-03  bc=5.0726e-05
+  [!] H lost positive-definiteness — resetting to I
+SSBroyden2  iter 29000/50000  loss=2.8604e+04  pde=2.8604e+04  ic=5.9283e-03  bc=6.4963e-05
+  [!] H lost positive-definiteness — resetting to I
+
+========================================================================
+Job finished at Mon Apr  6 11:34:07 PM EDT 2026
+Exit code: 0
+========================================================================

@@ -1,0 +1,12 @@
+/oscar/home/dwong33/DRP/.venv/lib64/python3.9/site-packages/scipy/optimize/_optimize.py:1775: RuntimeWarning: invalid value encountered in scalar divide
+  thetakm = (rhokm-1)/ak
+Traceback (most recent call last):
+  File "/oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/run_experiment.py", line 689, in <module>
+    cholesky(H0)
+  File "/oscar/home/dwong33/DRP/.venv/lib64/python3.9/site-packages/scipy/linalg/_decomp_cholesky.py", line 88, in cholesky
+    c, lower = _cholesky(a, lower=lower, overwrite_a=overwrite_a, clean=True,
+  File "/oscar/home/dwong33/DRP/.venv/lib64/python3.9/site-packages/scipy/linalg/_decomp_cholesky.py", line 17, in _cholesky
+    a1 = asarray_chkfinite(a) if check_finite else asarray(a)
+  File "/oscar/home/dwong33/DRP/.venv/lib64/python3.9/site-packages/numpy/lib/function_base.py", line 630, in asarray_chkfinite
+    raise ValueError(
+ValueError: array must not contain infs or NaNs

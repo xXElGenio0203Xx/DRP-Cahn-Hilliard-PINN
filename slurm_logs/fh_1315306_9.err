@@ -1,0 +1,4 @@
+/oscar/home/dwong33/DRP/.venv/lib64/python3.9/site-packages/scipy/optimize/_optimize.py:1774: RuntimeWarning: invalid value encountered in sqrt
+  rhokm = min(1,hk*(1-np.sqrt(np.abs(ak)/(1+ak))))
+/oscar/home/dwong33/DRP/Optimizing_the_Optimizer_PINNs/run_experiment.py:1115: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  fig.tight_layout()

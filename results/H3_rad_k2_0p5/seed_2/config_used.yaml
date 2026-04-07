@@ -1,0 +1,78 @@
+boundary_conditions:
+  derivative_order: 1
+  enforcement: soft
+  type: periodic
+domain:
+  normalize_inputs: true
+  t_max: 10.0
+  t_min: 0.0
+  x_max: 128.0
+  x_min: 0.0
+  y_max: 128.0
+  y_min: 0.0
+dtype: float64
+equation:
+  D: 1.0
+  a2: 1.0
+  a4: 1.0
+experiment:
+  description: 'RAD baseline sweep: k2=0.5 instead of 1.0. Lower baseline probability
+    makes the residual-driven term dominate more strongly. Differs from canonical:
+    sampling.rad.k2=0.5.'
+  name: H3_rad_k2_0p5
+initial_condition:
+  grid_nx: 128
+  grid_ny: 128
+  high: 1.0
+  low: -1.0
+  seed: 42
+  smoothing_sigma: 2.0
+  type: uniform_random
+logging:
+  eval_every: 500
+  print_every: 500
+  reference_solution: reference_solution_t10_dt0p01.npz
+  results_dir: results/H3_rad_k2_0p5
+loss_weights:
+  bc: 5.0
+  ic: 5.0
+  pde: 1.0
+network:
+  activation: tanh
+  final_layer_init: variance_scaling
+  layer_dims:
+  - 3
+  - 20
+  - 20
+  - 20
+  - 20
+  - 1
+  output_scaling: 1.0
+sampling:
+  n_boundary: 500
+  n_initial: 1000
+  n_interior: 10000
+  rad:
+    enabled: true
+    k1: 1.0
+    k2: 0.5
+    n_candidates: 50000
+  resample_every: 500
+seed: 2
+training:
+  adam:
+    betas:
+    - 0.99
+    - 0.999
+    epochs: 1000
+    eps: 1.0e-20
+    lr: 0.001
+    lr_decay_rate: 0.98
+    lr_decay_steps: 1000
+  bfgs:
+    batch_size: 500
+    epochs: 50000
+    initial_scale: false
+    method: BFGS
+    power: 1.0
+    variant: SSBroyden2
