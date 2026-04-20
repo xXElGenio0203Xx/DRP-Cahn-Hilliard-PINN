@@ -1,0 +1,76 @@
+boundary_conditions:
+  derivative_order: 1
+  enforcement: soft
+  type: periodic
+domain:
+  normalize_inputs: true
+  t_max: 20.0
+  t_min: 0.0
+  x_max: 64.0
+  x_min: 0.0
+  y_max: 64.0
+  y_min: 0.0
+dtype: float64
+equation:
+  D: 1.0
+  a2: 1.0
+  a4: 1.0
+experiment:
+  description: SSBroyden2 on 64x64 with RAD k2=0.5 (baseline k2=1.0). Lower baseline
+    probability makes residual-driven term dominate. Best RAD setting from Don's 128x128
+    ablation.
+  name: V3_C_rad_k2_0p5
+initial_condition:
+  grid_nx: 64
+  grid_ny: 64
+  high: 1.0
+  low: -1.0
+  seed: 42
+  smoothing_sigma: 2.0
+  type: uniform_random
+logging:
+  print_every: 500
+  reference_solution: reference_solution_64.npz
+  results_dir: results/v3_64_ablation/V3_C_rad_k2_0p5
+loss_weights:
+  bc: 5.0
+  ic: 5.0
+  pde: 1.0
+network:
+  activation: tanh
+  final_layer_init: variance_scaling
+  layer_dims:
+  - 3
+  - 20
+  - 20
+  - 20
+  - 20
+  - 1
+  output_scaling: 1.0
+sampling:
+  n_boundary: 500
+  n_initial: 500
+  n_interior: 8000
+  rad:
+    enabled: true
+    k1: 1.0
+    k2: 0.5
+    n_candidates: 50000
+  resample_every: 500
+training:
+  adam:
+    betas:
+    - 0.99
+    - 0.999
+    epochs: 1000
+    eps: 1.0e-20
+    lr: 0.001
+    lr_decay_rate: 0.98
+    lr_decay_steps: 1000
+  bfgs:
+    batch_size: 500
+    epochs: 50000
+    initial_scale: false
+    method: BFGS
+    power: 1.0
+    variant: SSBroyden2

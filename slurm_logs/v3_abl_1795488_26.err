@@ -1,0 +1,6 @@
+/var/spool/slurmd/job1800267/slurm_script: line 47: /oscar/home/emaciaso/pinn_env/bin/activate: Permission denied
+/var/spool/slurmd/job1800267/slurm_script: line 48: cd: /oscar/home/emaciaso/DRP-Cahn-Hilliard-PINN: Permission denied
+/oscar/home/dwong33/DRP-Cahn-Hilliard-PINN/run_experiment.py:672: OptimizeWarning: Unknown solver options: method_bfgs, initial_scale
+  result = minimize(
+/oscar/home/dwong33/DRP-Cahn-Hilliard-PINN/run_experiment.py:1115: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  fig.tight_layout()
