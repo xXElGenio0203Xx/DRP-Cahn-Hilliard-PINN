@@ -1,0 +1,171 @@
+========================================================================
+SLURM Job ID:       1798782
+Array Task ID:      19
+Config index:       6 / 10
+Config file:        configs/v3_64_ablation/V3_G_combined_batch200.yaml
+Seed:               2
+Hostname:           node2343.oscar.ccv.brown.edu
+Date:               Sun Apr 19 10:42:26 PM EDT 2026
+Working directory:  /users/dwong33/DRP-Cahn-Hilliard-PINN
+Python:             /oscar/home/dwong33/astrolensing/bin/python
+========================================================================
+======================================================================
+Cahn-Hilliard PINN — Batch Training
+Config: configs/v3_64_ablation/V3_G_combined_batch200.yaml
+Seed override: 2
+======================================================================
+Config : V3_G_combined_batch200
+  PDE  : dU/dt = 1.0*lap(lap U + 1.0*U + 1.0*U^3)
+  Domain: x=[0.0,64.0], y=[0.0,64.0], t=[0.0,20.0]
+  Net  : (3, 20, 20, 20, 20, 1)  activation=tanh
+  Train: Adam(1000) -> SSBroyden2(50000)
+  Samp : Nint=16000, N0=1000, Nb=500, RAD=on
+  Device: cpu
+
+Trainable parameters : 1361
+Reference eval: /oscar/home/dwong33/DRP-Cahn-Hilliard-PINN/reference_solution_64.npz (21 times)
+Phase 1 optimizer: ADAM  lr=0.001
+Adam  epoch   500/1000  loss=3.1357e-02  pde=3.1341e-06  ic=6.2581e-03  bc=1.2679e-05
+Adam  epoch  1000/1000  loss=3.2202e-02  pde=6.8797e-05  ic=6.4166e-03  bc=1.0022e-05
+
+Adam phase complete: 819.2s  final loss=3.2202e-02
+SSBroyden2  iter   500/50000  loss=1.2890e-02  pde=5.7701e-04  ic=2.4147e-03  bc=4.7942e-05
+SSBroyden2  iter  1000/50000  loss=3.3393e-03  pde=5.0785e-04  ic=5.3069e-04  bc=3.5592e-05
+SSBroyden2  iter  1500/50000  loss=1.5075e-03  pde=2.8672e-04  ic=2.2596e-04  bc=1.8191e-05
+SSBroyden2  iter  2000/50000  loss=6.5974e-04  pde=1.6141e-04  ic=8.8036e-05  bc=1.1630e-05
+SSBroyden2  iter  2500/50000  loss=6.8960e-04  pde=1.4215e-04  ic=9.7718e-05  bc=1.1773e-05
+SSBroyden2  iter  3000/50000  loss=4.8980e-04  pde=1.3478e-04  ic=6.2442e-05  bc=8.5612e-06
+SSBroyden2  iter  3500/50000  loss=4.3339e-04  pde=1.2630e-04  ic=5.2590e-05  bc=8.8287e-06
+SSBroyden2  iter  4000/50000  loss=3.7282e-04  pde=1.1650e-04  ic=4.3275e-05  bc=7.9881e-06
+SSBroyden2  iter  4500/50000  loss=3.2732e-04  pde=1.0202e-04  ic=3.8144e-05  bc=6.9151e-06
+SSBroyden2  iter  5000/50000  loss=3.0821e-04  pde=9.0452e-05  ic=3.8200e-05  bc=5.3524e-06
+SSBroyden2  iter  5500/50000  loss=2.9547e-04  pde=8.7089e-05  ic=3.3251e-05  bc=8.4251e-06
+SSBroyden2  iter  6000/50000  loss=2.6080e-04  pde=8.0311e-05  ic=3.0696e-05  bc=5.4024e-06
+SSBroyden2  iter  6500/50000  loss=2.3773e-04  pde=8.0635e-05  ic=2.7024e-05  bc=4.3945e-06
+SSBroyden2  iter  7000/50000  loss=2.2736e-04  pde=7.6800e-05  ic=2.3864e-05  bc=6.2485e-06
+SSBroyden2  iter  7500/50000  loss=2.2114e-04  pde=7.0196e-05  ic=2.5438e-05  bc=4.7506e-06
+SSBroyden2  iter  8000/50000  loss=1.6360e-04  pde=6.4717e-05  ic=1.6539e-05  bc=3.2365e-06
+SSBroyden2  iter  8500/50000  loss=1.8861e-04  pde=6.6703e-05  ic=1.9717e-05  bc=4.6645e-06
+SSBroyden2  iter  9000/50000  loss=1.6033e-04  pde=6.0018e-05  ic=1.6812e-05  bc=3.2500e-06
+SSBroyden2  iter  9500/50000  loss=1.6773e-04  pde=6.2502e-05  ic=1.7953e-05  bc=3.0938e-06
+SSBroyden2  iter 10000/50000  loss=1.5249e-04  pde=5.6313e-05  ic=1.5576e-05  bc=3.6588e-06
+SSBroyden2  iter 10500/50000  loss=1.4964e-04  pde=5.9560e-05  ic=1.5029e-05  bc=2.9866e-06
+SSBroyden2  iter 11000/50000  loss=1.4302e-04  pde=5.6261e-05  ic=1.4362e-05  bc=2.9894e-06
+SSBroyden2  iter 11500/50000  loss=1.6256e-04  pde=5.8725e-05  ic=1.7891e-05  bc=2.8757e-06
+SSBroyden2  iter 12000/50000  loss=1.3650e-04  pde=5.0305e-05  ic=1.4856e-05  bc=2.3819e-06
+SSBroyden2  iter 12500/50000  loss=1.4183e-04  pde=5.1386e-05  ic=1.5677e-05  bc=2.4132e-06
+SSBroyden2  iter 13000/50000  loss=1.1377e-04  pde=4.8579e-05  ic=1.1233e-05  bc=1.8047e-06
+SSBroyden2  iter 13500/50000  loss=1.2049e-04  pde=4.9936e-05  ic=1.2153e-05  bc=1.9590e-06
+SSBroyden2  iter 14000/50000  loss=1.2094e-04  pde=4.8710e-05  ic=1.2060e-05  bc=2.3861e-06
+SSBroyden2  iter 14500/50000  loss=1.4066e-04  pde=5.1009e-05  ic=1.4400e-05  bc=3.5307e-06
+SSBroyden2  iter 15000/50000  loss=1.2359e-04  pde=5.2069e-05  ic=1.1373e-05  bc=2.9308e-06
+SSBroyden2  iter 15500/50000  loss=1.2245e-04  pde=4.8921e-05  ic=1.2218e-05  bc=2.4890e-06
+SSBroyden2  iter 16000/50000  loss=1.1807e-04  pde=4.8464e-05  ic=1.1660e-05  bc=2.2609e-06
+SSBroyden2  iter 16500/50000  loss=1.1477e-04  pde=4.8100e-05  ic=1.1240e-05  bc=2.0935e-06
+SSBroyden2  iter 17000/50000  loss=9.5615e-05  pde=4.3485e-05  ic=8.5635e-06  bc=1.8626e-06
+SSBroyden2  iter 17500/50000  loss=1.0625e-04  pde=4.6592e-05  ic=9.7904e-06  bc=2.1405e-06
+SSBroyden2  iter 18000/50000  loss=9.7570e-05  pde=4.4090e-05  ic=8.7797e-06  bc=1.9163e-06
+SSBroyden2  iter 18500/50000  loss=1.0379e-04  pde=4.6102e-05  ic=9.2976e-06  bc=2.2394e-06
+SSBroyden2  iter 19000/50000  loss=9.3712e-05  pde=4.0402e-05  ic=8.7489e-06  bc=1.9130e-06
+SSBroyden2  iter 19500/50000  loss=1.1453e-04  pde=4.5269e-05  ic=1.1469e-05  bc=2.3834e-06
+SSBroyden2  iter 20000/50000  loss=9.3463e-05  pde=4.2080e-05  ic=8.3087e-06  bc=1.9679e-06
+SSBroyden2  iter 20500/50000  loss=9.9441e-05  pde=4.3179e-05  ic=9.5604e-06  bc=1.6921e-06
+SSBroyden2  iter 21000/50000  loss=9.6514e-05  pde=4.0922e-05  ic=9.0640e-06  bc=2.0546e-06
+SSBroyden2  iter 21500/50000  loss=9.8785e-05  pde=4.1678e-05  ic=9.6262e-06  bc=1.7951e-06
+SSBroyden2  iter 22000/50000  loss=8.8851e-05  pde=4.1673e-05  ic=7.9641e-06  bc=1.4716e-06
+SSBroyden2  iter 22500/50000  loss=9.0306e-05  pde=4.1685e-05  ic=8.1933e-06  bc=1.5310e-06
+SSBroyden2  iter 23000/50000  loss=8.0967e-05  pde=3.7804e-05  ic=6.9869e-06  bc=1.6456e-06
+SSBroyden2  iter 23500/50000  loss=9.0628e-05  pde=3.9047e-05  ic=8.8404e-06  bc=1.4758e-06
+SSBroyden2  iter 24000/50000  loss=8.5584e-05  pde=3.7439e-05  ic=7.7665e-06  bc=1.8626e-06
+SSBroyden2  iter 24500/50000  loss=9.0211e-05  pde=4.0804e-05  ic=8.1979e-06  bc=1.6836e-06
+SSBroyden2  iter 25000/50000  loss=7.9961e-05  pde=3.8050e-05  ic=6.7827e-06  bc=1.5994e-06
+SSBroyden2  iter 25500/50000  loss=8.9754e-05  pde=4.0280e-05  ic=8.4474e-06  bc=1.4473e-06
+SSBroyden2  iter 26000/50000  loss=7.6437e-05  pde=3.6190e-05  ic=6.7159e-06  bc=1.3335e-06
+SSBroyden2  iter 26500/50000  loss=8.4116e-05  pde=3.6969e-05  ic=8.1352e-06  bc=1.2941e-06
+SSBroyden2  iter 27000/50000  loss=7.4815e-05  pde=3.6977e-05  ic=6.2201e-06  bc=1.3474e-06
+SSBroyden2  iter 27500/50000  loss=8.0139e-05  pde=3.6180e-05  ic=7.0842e-06  bc=1.7076e-06
+SSBroyden2  iter 28000/50000  loss=7.5284e-05  pde=3.5332e-05  ic=6.7616e-06  bc=1.2288e-06
+SSBroyden2  iter 28500/50000  loss=7.6295e-05  pde=3.7250e-05  ic=6.5600e-06  bc=1.2489e-06
+SSBroyden2  iter 29000/50000  loss=7.3305e-05  pde=3.5058e-05  ic=6.5630e-06  bc=1.0864e-06
+SSBroyden2  iter 29500/50000  loss=7.4999e-05  pde=3.5210e-05  ic=6.5549e-06  bc=1.4029e-06
+SSBroyden2  iter 30000/50000  loss=7.1915e-05  pde=3.4346e-05  ic=6.1521e-06  bc=1.3615e-06
+SSBroyden2  iter 30500/50000  loss=7.3326e-05  pde=3.4802e-05  ic=6.5407e-06  bc=1.1642e-06
+SSBroyden2  iter 31000/50000  loss=6.6469e-05  pde=3.4652e-05  ic=5.3417e-06  bc=1.0216e-06
+SSBroyden2  iter 31500/50000  loss=7.5384e-05  pde=3.4951e-05  ic=6.6786e-06  bc=1.4081e-06
+SSBroyden2  iter 32000/50000  loss=6.7606e-05  pde=3.3974e-05  ic=5.6208e-06  bc=1.1057e-06
+SSBroyden2  iter 32500/50000  loss=6.9983e-05  pde=3.3314e-05  ic=6.1912e-06  bc=1.1428e-06
+SSBroyden2  iter 33000/50000  loss=6.9278e-05  pde=3.3393e-05  ic=6.0849e-06  bc=1.0921e-06
+SSBroyden2  iter 33500/50000  loss=6.5778e-05  pde=3.3188e-05  ic=5.3867e-06  bc=1.1312e-06
+SSBroyden2  iter 34000/50000  loss=7.1682e-05  pde=3.4255e-05  ic=6.0970e-06  bc=1.3885e-06
+SSBroyden2  iter 34500/50000  loss=7.0192e-05  pde=3.4086e-05  ic=6.1849e-06  bc=1.0364e-06
+SSBroyden2  iter 35000/50000  loss=6.1901e-05  pde=3.1895e-05  ic=5.0312e-06  bc=9.6994e-07
+SSBroyden2  iter 35500/50000  loss=6.7027e-05  pde=3.2848e-05  ic=5.6995e-06  bc=1.1362e-06
+SSBroyden2  iter 36000/50000  loss=6.7875e-05  pde=3.2615e-05  ic=5.8692e-06  bc=1.1828e-06
+SSBroyden2  iter 36500/50000  loss=7.0261e-05  pde=3.3773e-05  ic=6.0737e-06  bc=1.2239e-06
+SSBroyden2  iter 37000/50000  loss=6.1946e-05  pde=3.0618e-05  ic=5.3873e-06  bc=8.7820e-07
+SSBroyden2  iter 37500/50000  loss=6.6817e-05  pde=3.3599e-05  ic=5.7075e-06  bc=9.3600e-07
+SSBroyden2  iter 38000/50000  loss=6.6567e-05  pde=3.4978e-05  ic=5.3776e-06  bc=9.4015e-07
+SSBroyden2  iter 38500/50000  loss=6.2060e-05  pde=3.2395e-05  ic=5.0067e-06  bc=9.2629e-07
+SSBroyden2  iter 39000/50000  loss=5.9949e-05  pde=2.9812e-05  ic=4.8191e-06  bc=1.2082e-06
+SSBroyden2  iter 39500/50000  loss=6.7763e-05  pde=3.3073e-05  ic=5.8015e-06  bc=1.1364e-06
+SSBroyden2  iter 40000/50000  loss=6.2713e-05  pde=3.1164e-05  ic=5.1706e-06  bc=1.1393e-06
+SSBroyden2  iter 40500/50000  loss=6.2456e-05  pde=3.1979e-05  ic=4.9346e-06  bc=1.1608e-06
+SSBroyden2  iter 41000/50000  loss=6.0528e-05  pde=3.0984e-05  ic=5.1029e-06  bc=8.0594e-07
+SSBroyden2  iter 41500/50000  loss=6.7833e-05  pde=3.1780e-05  ic=5.9514e-06  bc=1.2591e-06
+SSBroyden2  iter 42000/50000  loss=6.0954e-05  pde=3.1138e-05  ic=4.9189e-06  bc=1.0443e-06
+SSBroyden2  iter 42500/50000  loss=5.9947e-05  pde=3.1379e-05  ic=4.5671e-06  bc=1.1465e-06
+SSBroyden2  iter 43000/50000  loss=6.0049e-05  pde=3.0528e-05  ic=4.9954e-06  bc=9.0894e-07
+SSBroyden2  iter 43500/50000  loss=5.7323e-05  pde=3.0110e-05  ic=4.5692e-06  bc=8.7336e-07
+SSBroyden2  iter 44000/50000  loss=5.7088e-05  pde=3.0855e-05  ic=4.4526e-06  bc=7.9387e-07
+SSBroyden2  iter 44500/50000  loss=6.3060e-05  pde=3.1767e-05  ic=5.3078e-06  bc=9.5080e-07
+SSBroyden2  iter 45000/50000  loss=5.6331e-05  pde=3.0335e-05  ic=4.3286e-06  bc=8.7060e-07
+SSBroyden2  iter 45500/50000  loss=5.7257e-05  pde=3.0592e-05  ic=4.3571e-06  bc=9.7588e-07
+SSBroyden2  iter 46000/50000  loss=5.4582e-05  pde=2.8729e-05  ic=4.4515e-06  bc=7.1912e-07
+SSBroyden2  iter 46500/50000  loss=5.5907e-05  pde=2.9074e-05  ic=4.5398e-06  bc=8.2666e-07
+SSBroyden2  iter 47000/50000  loss=5.4869e-05  pde=2.9532e-05  ic=4.3358e-06  bc=7.3166e-07
+SSBroyden2  iter 47500/50000  loss=5.8120e-05  pde=2.9538e-05  ic=4.6940e-06  bc=1.0224e-06
+SSBroyden2  iter 48000/50000  loss=5.6561e-05  pde=2.9871e-05  ic=4.4409e-06  bc=8.9710e-07
+SSBroyden2  iter 48500/50000  loss=5.5819e-05  pde=2.9762e-05  ic=4.3039e-06  bc=9.0750e-07
+SSBroyden2  iter 49000/50000  loss=5.1628e-05  pde=2.9226e-05  ic=3.7462e-06  bc=7.3430e-07
+SSBroyden2  iter 49500/50000  loss=5.3760e-05  pde=2.9220e-05  ic=4.0538e-06  bc=8.5418e-07
+SSBroyden2  iter 50000/50000  loss=5.3189e-05  pde=2.8644e-05  ic=4.0880e-06  bc=8.2103e-07
+
+SSBroyden2 phase complete: 57874.3s
+Total training time: 58693.5s
+
+Model saved to results/v3_64_ablation/V3_G_combined_batch200/seed_2/model.pt
+Metrics saved to results/v3_64_ablation/V3_G_combined_batch200/seed_2/metrics.npz
+
+Mass conservation diagnostic (<U> over domain at 21 times):
+  <U>(t=0.0) = -0.003892
+  <U>(t=20.0) = -0.004100
+  max drift       = 2.84e-03
+
+Loading reference solution from /oscar/home/dwong33/DRP-Cahn-Hilliard-PINN/reference_solution_64.npz ...
+  Per-snapshot relative L2 errors:
+    t=0.0  L2_rel=6.0533e-02
+    t=5.0  L2_rel=4.8044e-01
+    t=10.0  L2_rel=5.5302e-01
+    t=15.0  L2_rel=6.7196e-01
+    t=20.0  L2_rel=7.7156e-01
+  Overall relative L2 = 3.6147e-01
+  Saved comparison_snapshots.png
+Summary saved to results/v3_64_ablation/V3_G_combined_batch200/seed_2/summary.json
+
+Plots saved to results/v3_64_ablation/V3_G_combined_batch200/seed_2/
+
+======================================================================
+EXPERIMENT COMPLETE: V3_G_combined_batch200
+  Adam: 1000 epochs, 819.2s
+  BFGS: 50000 iters (SSBroyden2), 57874.3s
+  Total: 58693.5s
+  Final loss: 5.3189e-05
+  Final relative L2: 4.5710e-01
+  Iterations to L2<=0.50: 21000
+  Results: results/v3_64_ablation/V3_G_combined_batch200/seed_2/
+======================================================================
+
+========================================================================
+Job finished at Mon Apr 20 03:01:06 PM EDT 2026
+Exit code: 0
+========================================================================
